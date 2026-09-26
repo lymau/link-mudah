@@ -42,9 +42,18 @@ func main() {
 
 	r := chi.NewRouter()
 	auth := newAuthHandler(db, cfg.JWTSecret)
+	profile := newProfileHandler(db, rdb)
 	r.Route("/api/auth", func(r chi.Router) {
 		r.Post("/register", auth.register)
 		r.Post("/login", auth.login)
+	})
+	r.Route("/api/me", func(r chi.Router) {
+		r.Use(RequireAuth(cfg.JWTSecret))
+		r.Get("/", profile.me)
+		r.Put("/settings", profile.updateSettings)
+		r.Post("/links", profile.createLink)
+		r.Put("/links/{id}", profile.updateLink)
+		r.Delete("/links/{id}", profile.deleteLink)
 	})
 	r.Get("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

@@ -7,14 +7,18 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"log"
 	"net/http"
 	"regexp"
 	"strings"
 	"time"
 	"unicode/utf8"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/redis/go-redis/v9"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -54,10 +58,273 @@ type authClaims struct {
 	jwt.RegisteredClaims
 }
 
+type profileHandler struct {
+	db  *sql.DB
+	rdb *redis.Client
+}
+
+type pageSettings struct {
+	BGColor    string `json:"bg_color"`
+	FontFamily string `json:"font_family"`
+	AvatarURL  string `json:"avatar_url"`
+}
+
+type linkPayload struct {
+	ID       string `json:"id,omitempty"`
+	Title    string `json:"title"`
+	URL      string `json:"url"`
+	Position int    `json:"position,omitempty"`
+}
+
+type meResponse struct {
+	Username     string          `json:"username"`
+	Email        string          `json:"email"`
+	PageSettings pageSettings   `json:"page_settings"`
+	Links        []linkPayload  `json:"links"`
+}
+
+type settingsRequest struct {
+	BGColor    string `json:"bg_color"`
+	FontFamily string `json:"font_family"`
+	AvatarURL  string `json:"avatar_url"`
+}
+
+type linkRequest struct {
+	Title    *string `json:"title"`
+	URL      *string `json:"url"`
+	Position *int    `json:"position"`
+}
+
+type createLinkRequest struct {
+	Title string `json:"title"`
+	URL   string `json:"url"`
+}
+
 var usernamePattern = regexp.MustCompile(`^[A-Za-z0-9-]+$`)
 
 func newAuthHandler(db *sql.DB, secret string) *authHandler {
 	return &authHandler{db: db, jwtSecret: []byte(secret)}
+}
+
+func newProfileHandler(db *sql.DB, rdb *redis.Client) *profileHandler {
+	return &profileHandler{db: db, rdb: rdb}
+}
+
+func (h *profileHandler) me(w http.ResponseWriter, r *http.Request) {
+	userID, ok := UserIDFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+
+	var username, email string
+	if err := h.db.QueryRowContext(r.Context(), `SELECT username, email FROM users WHERE id = $1`, userID).Scan(&username, &email); err != nil {
+		writeError(w, http.StatusUnauthorized, "user not found")
+		return
+	}
+
+	settings := pageSettings{}
+	_ = h.db.QueryRowContext(r.Context(), `SELECT bg_color, font_family, avatar_url FROM page_settings WHERE user_id = $1`, userID).Scan(&settings.BGColor, &settings.FontFamily, &settings.AvatarURL)
+
+	rows, err := h.db.QueryContext(r.Context(), `SELECT id, title, url, position FROM links WHERE user_id = $1 ORDER BY position ASC, created_at ASC`, userID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load links")
+		return
+	}
+	defer rows.Close()
+
+	links := make([]linkPayload, 0)
+	for rows.Next() {
+		var link linkPayload
+		if err := rows.Scan(&link.ID, &link.Title, &link.URL, &link.Position); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to read links")
+			return
+		}
+		links = append(links, link)
+	}
+	if err := rows.Err(); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to read links")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, meResponse{Username: username, Email: email, PageSettings: settings, Links: links})
+}
+
+func (h *profileHandler) updateSettings(w http.ResponseWriter, r *http.Request) {
+	userID, ok := UserIDFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+
+	var input settingsRequest
+	if err := decodeJSON(r, &input); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+
+	var stored pageSettings
+	if err := h.db.QueryRowContext(r.Context(), `
+		INSERT INTO page_settings (user_id, bg_color, font_family, avatar_url, updated_at)
+		VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
+		ON CONFLICT (user_id) DO UPDATE SET
+			bg_color = EXCLUDED.bg_color,
+			font_family = EXCLUDED.font_family,
+			avatar_url = EXCLUDED.avatar_url,
+			updated_at = CURRENT_TIMESTAMP
+		RETURNING bg_color, font_family, avatar_url`, userID, input.BGColor, input.FontFamily, input.AvatarURL).Scan(&stored.BGColor, &stored.FontFamily, &stored.AvatarURL); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to update settings")
+		return
+	}
+
+	if err := h.invalidateUserPageCache(r.Context(), userID); err != nil {
+		log.Printf("cache invalidation failed for user %s: %v", userID, err)
+	}
+	writeJSON(w, http.StatusOK, stored)
+}
+
+func (h *profileHandler) createLink(w http.ResponseWriter, r *http.Request) {
+	userID, ok := UserIDFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+
+	var input createLinkRequest
+	if err := decodeJSON(r, &input); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	input.Title = strings.TrimSpace(input.Title)
+	input.URL = strings.TrimSpace(input.URL)
+	if input.Title == "" || input.URL == "" {
+		writeError(w, http.StatusBadRequest, "title and url are required")
+		return
+	}
+
+	var position int
+	if err := h.db.QueryRowContext(r.Context(), `SELECT COALESCE(MAX(position), 0) + 1 FROM links WHERE user_id = $1`, userID).Scan(&position); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to determine link position")
+		return
+	}
+
+	linkID, err := newUserID()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to create link")
+		return
+	}
+	if _, err := h.db.ExecContext(r.Context(), `INSERT INTO links (id, user_id, title, url, position) VALUES ($1, $2, $3, $4, $5)`, linkID, userID, input.Title, input.URL, position); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to create link")
+		return
+	}
+
+	if err := h.invalidateUserPageCache(r.Context(), userID); err != nil {
+		log.Printf("cache invalidation failed for user %s: %v", userID, err)
+	}
+	writeJSON(w, http.StatusCreated, linkPayload{ID: linkID, Title: input.Title, URL: input.URL, Position: position})
+}
+
+func (h *profileHandler) updateLink(w http.ResponseWriter, r *http.Request) {
+	userID, ok := UserIDFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+
+	linkID := chi.URLParam(r, "id")
+	if linkID == "" {
+		writeError(w, http.StatusBadRequest, "link id is required")
+		return
+	}
+
+	var input linkRequest
+	if err := decodeJSON(r, &input); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+
+	var existingUserID, title, url string
+	var position int
+	if err := h.db.QueryRowContext(r.Context(), `SELECT user_id, title, url, position FROM links WHERE id = $1`, linkID).Scan(&existingUserID, &title, &url, &position); err != nil {
+		writeError(w, http.StatusNotFound, "link not found")
+		return
+	}
+	if existingUserID != userID {
+		writeError(w, http.StatusNotFound, "link not found")
+		return
+	}
+
+	if input.Title != nil {
+		title = strings.TrimSpace(*input.Title)
+		if title == "" {
+			writeError(w, http.StatusBadRequest, "title is required")
+			return
+		}
+	}
+	if input.URL != nil {
+		url = strings.TrimSpace(*input.URL)
+		if url == "" {
+			writeError(w, http.StatusBadRequest, "url is required")
+			return
+		}
+	}
+	if input.Position != nil {
+		position = *input.Position
+	}
+
+	if _, err := h.db.ExecContext(r.Context(), `UPDATE links SET title = $1, url = $2, position = $3 WHERE id = $4 AND user_id = $5`, title, url, position, linkID, userID); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to update link")
+		return
+	}
+
+	if err := h.invalidateUserPageCache(r.Context(), userID); err != nil {
+		log.Printf("cache invalidation failed for user %s: %v", userID, err)
+	}
+	writeJSON(w, http.StatusOK, linkPayload{ID: linkID, Title: title, URL: url, Position: position})
+}
+
+func (h *profileHandler) deleteLink(w http.ResponseWriter, r *http.Request) {
+	userID, ok := UserIDFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+
+	linkID := chi.URLParam(r, "id")
+	if linkID == "" {
+		writeError(w, http.StatusBadRequest, "link id is required")
+		return
+	}
+
+	result, err := h.db.ExecContext(r.Context(), `DELETE FROM links WHERE id = $1 AND user_id = $2`, linkID, userID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to delete link")
+		return
+	}
+	if n, _ := result.RowsAffected(); n == 0 {
+		writeError(w, http.StatusNotFound, "link not found")
+		return
+	}
+
+	if err := h.invalidateUserPageCache(r.Context(), userID); err != nil {
+		log.Printf("cache invalidation failed for user %s: %v", userID, err)
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"deleted": true})
+}
+
+func (h *profileHandler) invalidateUserPageCache(ctx context.Context, userID string) error {
+	var username string
+	if err := h.db.QueryRowContext(ctx, `SELECT username FROM users WHERE id = $1`, userID).Scan(&username); err != nil {
+		return err
+	}
+	if h.rdb == nil {
+		return nil
+	}
+	return h.rdb.Del(ctx, userPageCacheKey(username)).Err()
+}
+
+func userPageCacheKey(username string) string {
+	return fmt.Sprintf("page:%s", username)
 }
 
 func (h *authHandler) register(w http.ResponseWriter, r *http.Request) {
