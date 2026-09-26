@@ -1,4 +1,4 @@
-CREATE TABLE users (
+CREATE TABLE IF NOT EXISTS users (
     id UUID PRIMARY KEY,
     username TEXT NOT NULL UNIQUE,
     email TEXT NOT NULL UNIQUE,
@@ -7,7 +7,7 @@ CREATE TABLE users (
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE page_settings (
+CREATE TABLE IF NOT EXISTS page_settings (
     user_id UUID NOT NULL UNIQUE REFERENCES users (id),
     bg_color TEXT,
     font_family TEXT,
@@ -15,7 +15,7 @@ CREATE TABLE page_settings (
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE links (
+CREATE TABLE IF NOT EXISTS links (
     id UUID PRIMARY KEY,
     user_id UUID NOT NULL REFERENCES users (id),
     title TEXT NOT NULL,

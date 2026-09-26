@@ -19,10 +19,14 @@ type config struct {
 	Port         string
 	DatabaseURL  string
 	RedisAddress string
+	JWTSecret    string
 }
 
 func main() {
 	cfg := loadConfig()
+	if cfg.JWTSecret == "" {
+		log.Fatal("JWT_SECRET must be set")
+	}
 
 	db, err := connectPostgres(cfg.DatabaseURL)
 	if err != nil {
@@ -37,6 +41,11 @@ func main() {
 	defer rdb.Close()
 
 	r := chi.NewRouter()
+	auth := newAuthHandler(db, cfg.JWTSecret)
+	r.Route("/api/auth", func(r chi.Router) {
+		r.Post("/register", auth.register)
+		r.Post("/login", auth.login)
+	})
 	r.Get("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
@@ -69,6 +78,7 @@ func loadConfig() config {
 		Port:         port,
 		DatabaseURL:  buildPostgresDSN(),
 		RedisAddress: getEnv("REDIS_ADDR", "redis:6379"),
+		JWTSecret:    os.Getenv("JWT_SECRET"),
 	}
 }
 

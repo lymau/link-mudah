@@ -1,6 +1,11 @@
 services:
   frontend:
     image: nginx:alpine
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "--quiet", "http://localhost"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
 
   backend:
     build:
@@ -9,24 +14,30 @@ services:
       PORT: ${PORT:-8080}
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER:-linkmudah}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-linkmudah_dev}
+      POSTGRES_DB: ${POSTGRES_DB:-linkmudah}
       REDIS_ADDR: redis:6379
+      JWT_SECRET: ${JWT_SECRET:-local-development-secret}
     depends_on:
-      postgres:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
     ports:
       - "8080:8080"
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "--quiet", "http://localhost:8080/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
 
   postgres:
     image: postgres:16-alpine
     environment:
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER:-linkmudah}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-linkmudah_dev}
+      POSTGRES_DB: ${POSTGRES_DB:-linkmudah}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -34,6 +45,21 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+
+  migrate:
+    image: postgres:16-alpine
+    environment:
+      PGHOST: postgres
+      PGPORT: 5432
+      PGUSER: ${POSTGRES_USER:-linkmudah}
+      PGPASSWORD: ${POSTGRES_PASSWORD:-linkmudah_dev}
+      PGDATABASE: ${POSTGRES_DB:-linkmudah}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./backend/migrations/000001_create_core_tables.up.sql:/migration.sql:ro
+    command: ["sh", "-c", "psql -v ON_ERROR_STOP=1 -f /migration.sql"]
 
   redis:
     image: redis:7-alpine
