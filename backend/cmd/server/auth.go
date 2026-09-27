@@ -84,6 +84,19 @@ type meResponse struct {
 	Links        []linkPayload `json:"links"`
 }
 
+type publicPageResponse struct {
+	Username   string       `json:"username"`
+	BGColor    string       `json:"bg_color"`
+	FontFamily string       `json:"font_family"`
+	AvatarURL  string       `json:"avatar_url"`
+	Links      []publicLink `json:"links"`
+}
+
+type publicLink struct {
+	Title string `json:"title"`
+	URL   string `json:"url"`
+}
+
 type settingsRequest struct {
 	BGColor    string `json:"bg_color"`
 	FontFamily string `json:"font_family"`
@@ -109,6 +122,63 @@ func newAuthHandler(db *sql.DB, secret string) *authHandler {
 
 func newProfileHandler(db *sql.DB, rdb *redis.Client) *profileHandler {
 	return &profileHandler{db: db, rdb: rdb}
+}
+
+func (h *profileHandler) publicPage(w http.ResponseWriter, r *http.Request) {
+	username := chi.URLParam(r, "username")
+	key := userPageCacheKey(username)
+	if payload, err := cache.Get(r.Context(), h.rdb, key); err == nil && payload != "" {
+		log.Printf("cache hit key=%s", key)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(payload))
+		return
+	}
+	log.Printf("cache miss key=%s", key)
+
+	var page publicPageResponse
+	if err := h.db.QueryRowContext(r.Context(), `SELECT username FROM users WHERE username = $1`, username).Scan(&page.Username); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "user not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "failed to load user")
+		return
+	}
+
+	_ = h.db.QueryRowContext(r.Context(), `
+		SELECT COALESCE(bg_color, ''), COALESCE(font_family, ''), COALESCE(avatar_url, '')
+		FROM page_settings WHERE user_id = (SELECT id FROM users WHERE username = $1)`, username).
+		Scan(&page.BGColor, &page.FontFamily, &page.AvatarURL)
+
+	rows, err := h.db.QueryContext(r.Context(), `
+		SELECT title, url FROM links
+		WHERE user_id = (SELECT id FROM users WHERE username = $1)
+		ORDER BY position ASC, created_at ASC`, username)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load links")
+		return
+	}
+	defer rows.Close()
+
+	page.Links = make([]publicLink, 0)
+	for rows.Next() {
+		var link publicLink
+		if err := rows.Scan(&link.Title, &link.URL); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to read links")
+			return
+		}
+		page.Links = append(page.Links, link)
+	}
+	if err := rows.Err(); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to read links")
+		return
+	}
+
+	if err := cache.Set(r.Context(), h.rdb, key, page, cache.DefaultTTL); err != nil {
+		log.Printf("cache set failed key=%s: %v", key, err)
+	}
+	writeJSON(w, http.StatusOK, page)
 }
 
 func (h *profileHandler) me(w http.ResponseWriter, r *http.Request) {
