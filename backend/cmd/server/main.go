@@ -55,6 +55,7 @@ func main() {
 		r.Put("/links/{id}", profile.updateLink)
 		r.Delete("/links/{id}", profile.deleteLink)
 	})
+	r.Get("/api/public/{username}", profile.publicPage)
 	r.Get("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
