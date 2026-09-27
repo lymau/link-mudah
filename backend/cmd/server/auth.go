@@ -7,13 +7,14 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"log"
 	"net/http"
 	"regexp"
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"linkmudah/backend/internal/cache"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/golang-jwt/jwt/v5"
@@ -77,10 +78,10 @@ type linkPayload struct {
 }
 
 type meResponse struct {
-	Username     string          `json:"username"`
-	Email        string          `json:"email"`
-	PageSettings pageSettings   `json:"page_settings"`
-	Links        []linkPayload  `json:"links"`
+	Username     string        `json:"username"`
+	Email        string        `json:"email"`
+	PageSettings pageSettings  `json:"page_settings"`
+	Links        []linkPayload `json:"links"`
 }
 
 type settingsRequest struct {
@@ -317,14 +318,11 @@ func (h *profileHandler) invalidateUserPageCache(ctx context.Context, userID str
 	if err := h.db.QueryRowContext(ctx, `SELECT username FROM users WHERE id = $1`, userID).Scan(&username); err != nil {
 		return err
 	}
-	if h.rdb == nil {
-		return nil
-	}
-	return h.rdb.Del(ctx, userPageCacheKey(username)).Err()
+	return cache.Delete(ctx, h.rdb, userPageCacheKey(username))
 }
 
 func userPageCacheKey(username string) string {
-	return fmt.Sprintf("page:%s", username)
+	return cache.UserPageKey(username)
 }
 
 func (h *authHandler) register(w http.ResponseWriter, r *http.Request) {
