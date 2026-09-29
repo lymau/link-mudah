@@ -10,8 +10,11 @@
 
 <div
 	bind:this={ref}
-	data-slot="card-header"
-	class={cn("flex flex-col space-y-1.5 p-6", className)}
+	data-slot="alert-title"
+	class={cn(
+		"font-medium group-has-[>svg]/alert:col-start-2 [&_a]:underline [&_a]:underline-offset-3 [&_a]:hover:text-foreground",
+		className
+	)}
 	{...restProps}
 >
 	{@render children?.()}

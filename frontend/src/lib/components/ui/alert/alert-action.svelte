@@ -10,8 +10,8 @@
 
 <div
 	bind:this={ref}
-	data-slot="card-header"
-	class={cn("flex flex-col space-y-1.5 p-6", className)}
+	data-slot="alert-action"
+	class={cn("absolute top-2 right-2", className)}
 	{...restProps}
 >
 	{@render children?.()}

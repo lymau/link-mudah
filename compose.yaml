@@ -1,22 +1,30 @@
 services:
   frontend:
-    build:
-      context: ./frontend
-      args:
-        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8080}
+    image: node:20-alpine
+    working_dir: /app
+    volumes:
+      - ./frontend:/app
+      - frontend_node_modules:/app/node_modules
+    command: sh -c "npm install && npm run dev -- --host 0.0.0.0 --port 5173"
     ports:
-      - "5173:80"
+      - "5173:5173"
+    environment:
+      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8080}
     healthcheck:
-      test: ["CMD", "wget", "--spider", "--quiet", "http://localhost"]
+      test: ["CMD", "wget", "--spider", "--quiet", "http://127.0.0.1:5173"]
       interval: 5s
       timeout: 3s
       retries: 5
 
   backend:
-    build:
-      context: ./backend
+    image: golang:1.26-alpine
+    working_dir: /src
+    volumes:
+      - ./backend:/src
+    command: sh -c "go mod download && go run ./cmd/server"
     environment:
       PORT: ${PORT:-8080}
+      DATABASE_URL: postgres://${POSTGRES_USER:-linkmudah}:${POSTGRES_PASSWORD:-linkmudah_dev}@postgres:5432/${POSTGRES_DB:-linkmudah}?sslmode=disable
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
       POSTGRES_USER: ${POSTGRES_USER:-linkmudah}
@@ -32,7 +40,7 @@ services:
     ports:
       - "8080:8080"
     healthcheck:
-      test: ["CMD", "wget", "--spider", "--quiet", "http://localhost:8080/healthz"]
+      test: ["CMD", "wget", "--spider", "--quiet", "http://127.0.0.1:8080/healthz"]
       interval: 5s
       timeout: 3s
       retries: 5
@@ -76,3 +84,4 @@ services:
 
 volumes:
   postgres_data:
+  frontend_node_modules:

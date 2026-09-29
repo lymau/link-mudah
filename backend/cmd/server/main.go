@@ -41,6 +41,8 @@ func main() {
 	defer rdb.Close()
 
 	r := chi.NewRouter()
+	r.Use(corsMiddleware)
+
 	auth := newAuthHandler(db, cfg.JWTSecret)
 	profile := newProfileHandler(db, rdb)
 	r.Route("/api/auth", func(r chi.Router) {
@@ -56,12 +58,24 @@ func main() {
 		r.Delete("/links/{id}", profile.deleteLink)
 	})
 	r.Get("/api/public/{username}", profile.publicPage)
-	r.Get("/healthz", func(w http.ResponseWriter, r *http.Request) {
+
+	healthHandler := func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		if err := json.NewEncoder(w).Encode(map[string]string{"status": "ok"}); err != nil {
 			log.Printf("failed to encode healthz response: %v", err)
 		}
+	}
+	r.Get("/healthz", healthHandler)
+	r.Get("/api/healthz", healthHandler)
+	r.Get("/", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"status":  "ok",
+			"service": "linkmudah-backend",
+			"healthz": "/healthz",
+		})
 	})
 
 	server := &http.Server{
@@ -142,3 +156,32 @@ func connectRedis(address string) *redis.Client {
 
 	return client
 }
+
+func corsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		origin := r.Header.Get("Origin")
+		if origin != "" {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Access-Control-Allow-Credentials", "true")
+		} else {
+			w.Header().Set("Access-Control-Allow-Origin", "*")
+		}
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS, PATCH")
+
+		reqHeaders := r.Header.Get("Access-Control-Request-Headers")
+		if reqHeaders != "" {
+			w.Header().Set("Access-Control-Allow-Headers", reqHeaders)
+		} else {
+			w.Header().Set("Access-Control-Allow-Headers", "Accept, Authorization, Content-Type, X-CSRF-Token, Origin")
+		}
+
+		if r.Method == http.MethodOptions {
+			w.Header().Set("Access-Control-Max-Age", "86400")
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+

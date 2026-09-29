@@ -10,8 +10,8 @@
 
 <div
 	bind:this={ref}
-	data-slot="card-header"
-	class={cn("flex flex-col space-y-1.5 p-6", className)}
+	data-slot="dialog-header"
+	class={cn("gap-2 flex flex-col", className)}
 	{...restProps}
 >
 	{@render children?.()}

@@ -5,12 +5,14 @@
   import { Input } from '$lib/components/ui/input';
   import { Label } from '$lib/components/ui/label';
   import { Alert, AlertDescription } from '$lib/components/ui/alert';
-  import { Link2, LogIn, AlertCircle, Loader2 } from 'lucide-svelte';
-  import { apiFetch, setAuthToken } from '$lib/api';
+  import { Link2, UserPlus, AlertCircle, CheckCircle2, Loader2 } from 'lucide-svelte';
+  import { apiFetch } from '$lib/api';
 
+  let username = '';
   let email = '';
   let password = '';
   let error = '';
+  let successMessage = '';
   let isSubmitting = false;
 
   async function handleSubmit(event) {
@@ -18,18 +20,19 @@
       event.preventDefault();
     }
     error = '';
+    successMessage = '';
     isSubmitting = true;
 
     try {
-      const data = await apiFetch('/api/auth/login', {
+      await apiFetch('/api/auth/register', {
         method: 'POST',
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ username, email, password }),
       });
 
-      setAuthToken(data.token);
-      push('/dashboard');
+      successMessage = 'Pendaftaran berhasil. Mengalihkan ke halaman login...';
+      setTimeout(() => push('/login'), 1200);
     } catch (err) {
-      error = err.message || 'Login gagal. Periksa kembali email dan password Anda.';
+      error = err.message || 'Registrasi gagal. Silakan coba lagi.';
     } finally {
       isSubmitting = false;
     }
@@ -46,22 +49,35 @@
 
   <Card class="w-full max-w-sm sm:max-w-md shadow-md border-border/80">
     <CardHeader class="space-y-1.5 text-center">
-      <CardTitle class="text-2xl">Masuk ke Akun</CardTitle>
-      <CardDescription>Masukkan email dan kata sandi Anda untuk mengakses dashboard.</CardDescription>
+      <CardTitle class="text-2xl">Buat Akun Baru</CardTitle>
+      <CardDescription>Daftar sekarang untuk membuat halaman link-in-bio personal Anda.</CardDescription>
     </CardHeader>
 
     <CardContent>
       <form class="space-y-4" onsubmit={handleSubmit}>
+        <div class="space-y-2">
+          <Label for="username">Username</Label>
+          <div class="relative">
+            <Input
+              id="username"
+              bind:value={username}
+              type="text"
+              placeholder="username_anda"
+              required
+              autocomplete="username"
+            />
+          </div>
+          <p class="text-xs text-muted-foreground">Tautan publik Anda: linkmudah.com/#{username || 'username'}</p>
+        </div>
+
         <div class="space-y-2">
           <Label for="email">Email</Label>
           <Input id="email" bind:value={email} type="email" placeholder="nama@email.com" required autocomplete="email" />
         </div>
 
         <div class="space-y-2">
-          <div class="flex items-center justify-between">
-            <Label for="password">Kata Sandi</Label>
-          </div>
-          <Input id="password" bind:value={password} type="password" placeholder="••••••••" required autocomplete="current-password" />
+          <Label for="password">Kata Sandi</Label>
+          <Input id="password" bind:value={password} type="password" placeholder="Minimal 8 karakter" required autocomplete="new-password" />
         </div>
 
         {#if error}
@@ -71,13 +87,20 @@
           </Alert>
         {/if}
 
+        {#if successMessage}
+          <Alert class="border-emerald-500/30 bg-emerald-50 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300">
+            <CheckCircle2 class="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+            <AlertDescription>{successMessage}</AlertDescription>
+          </Alert>
+        {/if}
+
         <Button type="submit" class="w-full h-10 font-medium" disabled={isSubmitting}>
           {#if isSubmitting}
             <Loader2 class="mr-2 h-4 w-4 animate-spin" />
-            Memproses...
+            Mendaftarkan...
           {:else}
-            <LogIn class="mr-2 h-4 w-4" />
-            Masuk
+            <UserPlus class="mr-2 h-4 w-4" />
+            Daftar Akun
           {/if}
         </Button>
       </form>
@@ -85,9 +108,9 @@
 
     <CardFooter class="flex justify-center text-sm text-muted-foreground pt-0">
       <span>
-        Belum punya akun?
-        <Button type="button" variant="link" class="p-0 font-medium h-auto" onclick={() => push('/register')}>
-          Daftar sekarang
+        Sudah punya akun?
+        <Button type="button" variant="link" class="p-0 font-medium h-auto" onclick={() => push('/login')}>
+          Masuk di sini
         </Button>
       </span>
     </CardFooter>
