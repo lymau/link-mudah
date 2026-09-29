@@ -19,7 +19,7 @@
   }
 </script>
 
-<main class="min-h-screen bg-slate-100 text-slate-900">
+<main class="min-h-screen bg-background text-foreground">
   <Router {routes} />
 </main>
 
