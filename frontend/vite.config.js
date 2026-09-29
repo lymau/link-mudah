@@ -3,6 +3,8 @@ import tailwindcss from '@tailwindcss/vite'
 import { defineConfig } from 'vite'
 import { fileURLToPath, URL } from 'node:url'
 
+const backendTarget = process.env.VITE_BACKEND_PROXY_URL || (typeof process !== 'undefined' && process.env.NODE_ENV === 'production' ? 'http://localhost:8080' : 'http://backend:8080')
+
 export default defineConfig({
   plugins: [svelte(), tailwindcss()],
   resolve: {
@@ -10,4 +12,21 @@ export default defineConfig({
       $lib: fileURLToPath(new URL('./src/lib', import.meta.url)),
     },
   },
+  server: {
+    watch: {
+      usePolling: true,
+      interval: 500,
+    },
+    proxy: {
+      '/api': {
+        target: backendTarget,
+        changeOrigin: true,
+      },
+      '/healthz': {
+        target: backendTarget,
+        changeOrigin: true,
+      },
+    },
+  },
 })
+
