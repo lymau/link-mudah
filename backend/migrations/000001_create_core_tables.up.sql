@@ -12,6 +12,8 @@ CREATE TABLE IF NOT EXISTS page_settings (
     bg_color TEXT,
     font_family TEXT,
     avatar_url TEXT,
+    title TEXT,
+    description TEXT,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 

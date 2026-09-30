@@ -6,6 +6,7 @@
   import { Badge } from '$lib/components/ui/badge';
   import { Link2, ExternalLink, UserX, Loader2, Share2, Check } from 'lucide-svelte';
   import { apiFetch } from '$lib/api';
+  import { getAccessibleTheme } from '$lib/contrast';
 
   let { params = {} } = $props();
 
@@ -14,6 +15,8 @@
   let error = $state('');
   let currentUsername = $state('');
   let copied = $state(false);
+
+  let theme = $derived(getAccessibleTheme(profile?.bg_color || '#f8fafc'));
 
   function getUsername() {
     if (params && params['*']) {
@@ -42,11 +45,18 @@
       const data = await apiFetch(`/api/public/${encodeURIComponent(rawUsername)}`);
       profile = {
         username: data.username,
+        title: data.title || '',
+        description: data.description || '',
         bg_color: data.bg_color || '#f8fafc',
         font_family: data.font_family || 'Inter',
         avatar_url: data.avatar_url || '',
         links: data.links || []
       };
+
+      if (typeof document !== 'undefined') {
+        const displayTitle = profile.title ? `${profile.title} (@${profile.username})` : `@${profile.username}`;
+        document.title = `${displayTitle} | Link Mudah`;
+      }
     } catch (err) {
       error = err.message || 'Profil tidak ditemukan.';
     } finally {
@@ -98,25 +108,25 @@
   </div>
 {:else}
   <div
-    class="min-h-screen flex flex-col items-center justify-between p-4 sm:p-8"
-    style={`background-color: ${profile.bg_color}; font-family: ${profile.font_family};`}
+    class="min-h-screen flex flex-col items-center justify-between p-4 sm:p-8 transition-colors duration-200"
+    style={`background-color: ${profile.bg_color}; font-family: ${profile.font_family}; color: ${theme.textColor};`}
   >
     <!-- Share Button Top Right -->
     <div class="w-full max-w-lg flex justify-end">
-      <Button
-        variant="secondary"
-        size="sm"
-        class="h-8 gap-1.5 shadow-xs bg-background/80 backdrop-blur hover:bg-background"
+      <button
+        type="button"
+        class="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg text-xs font-medium backdrop-blur shadow-xs border transition-all cursor-pointer hover:opacity-90"
+        style="background-color: {theme.actionButtonBg}; color: {theme.actionButtonText}; border-color: {theme.actionButtonBorder};"
         onclick={handleShare}
       >
         {#if copied}
-          <Check class="h-3.5 w-3.5 text-emerald-600" />
-          Tersalin
+          <Check class="h-3.5 w-3.5 text-emerald-400" />
+          <span>Tersalin</span>
         {:else}
           <Share2 class="h-3.5 w-3.5" />
-          Bagikan
+          <span>Bagikan</span>
         {/if}
-      </Button>
+      </button>
     </div>
 
     <!-- Main Profile Card Container -->
@@ -126,50 +136,72 @@
         {#if profile.avatar_url}
           <img
             src={profile.avatar_url}
-            alt={profile.username}
-            class="h-24 w-24 rounded-full object-cover shadow-md border-4 border-background mb-4"
+            alt={profile.title || profile.username}
+            class="h-24 w-24 rounded-full object-cover shadow-md border-4 mb-4"
+            style="border-color: {theme.borderColor};"
             onerror={(e) => { e.currentTarget.style.display = 'none'; }}
           />
         {:else}
-          <div class="flex h-24 w-24 items-center justify-center rounded-full bg-primary text-primary-foreground text-3xl font-bold shadow-md border-4 border-background mb-4">
+          <div
+            class="flex h-24 w-24 items-center justify-center rounded-full text-3xl font-bold shadow-md border-4 mb-4"
+            style="background-color: {theme.avatarFallbackBg}; color: {theme.avatarFallbackText}; border-color: {theme.borderColor};"
+          >
             {profile.username ? profile.username.slice(0, 1).toUpperCase() : 'U'}
           </div>
         {/if}
 
-        <h1 class="text-2xl font-bold tracking-tight text-foreground flex items-center gap-1.5">
-          @{profile.username}
+        <!-- Judul Halaman Publik -->
+        <h1 class="text-2xl sm:text-3xl font-bold tracking-tight mb-1" style="color: {theme.textColor};">
+          {profile.title.trim() || `@${profile.username}`}
         </h1>
-        <p class="text-sm text-muted-foreground mt-1">
-          Kumpulan tautan resmi
+
+        <!-- Username badge / handle if custom title is active -->
+        {#if profile.title.trim()}
+          <p class="text-xs sm:text-sm font-mono opacity-85 mb-1" style="color: {theme.subTextColor};">
+            @{profile.username}
+          </p>
+        {/if}
+
+        <!-- Deskripsi Profil (di bawah avatar dan judul) -->
+        <p class="text-sm sm:text-base max-w-md mx-auto leading-relaxed mt-1" style="color: {theme.mutedTextColor};">
+          {profile.description.trim() || 'Kumpulan tautan resmi'}
         </p>
       </div>
 
       <!-- Links List -->
       <div class="space-y-3.5">
         {#if profile.links.length === 0}
-          <Card class="bg-background/80 backdrop-blur shadow-sm text-center py-6">
-            <CardContent class="p-0">
-              <p class="text-sm text-muted-foreground">Belum ada tautan yang dipublikasikan.</p>
-            </CardContent>
-          </Card>
+          <div
+            class="rounded-xl border backdrop-blur text-center py-6 px-4 shadow-xs"
+            style="background-color: {theme.cardBg}; border-color: {theme.cardBorder}; color: {theme.mutedTextColor};"
+          >
+            <p class="text-sm">Belum ada tautan yang dipublikasikan.</p>
+          </div>
         {:else}
           {#each profile.links as link}
             <a
               href={link.url}
               target="_blank"
               rel="noopener noreferrer"
-              class="group relative flex items-center justify-between p-4 rounded-xl border bg-background/90 hover:bg-background text-foreground shadow-xs hover:shadow-md transition-all transform hover:-translate-y-0.5 active:translate-y-0"
+              class="group relative flex items-center justify-between p-4 rounded-xl border backdrop-blur shadow-xs hover:shadow-md transition-all transform hover:-translate-y-0.5 active:translate-y-0"
+              style="background-color: {theme.cardBg}; border-color: {theme.cardBorder}; color: {theme.cardTextColor}; box-shadow: {theme.cardShadow};"
             >
               <div class="flex items-center gap-3 min-w-0 pr-2">
-                <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary group-hover:bg-primary group-hover:text-primary-foreground transition-colors">
+                <div
+                  class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition-colors"
+                  style="background-color: {theme.isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.06)'}; color: {theme.cardTextColor};"
+                >
                   <Link2 class="h-4 w-4" />
                 </div>
-                <span class="font-medium text-sm sm:text-base truncate">
+                <span class="font-semibold text-sm sm:text-base truncate">
                   {link.title}
                 </span>
               </div>
 
-              <ExternalLink class="h-4 w-4 text-muted-foreground group-hover:text-foreground shrink-0 transition-colors" />
+              <ExternalLink
+                class="h-4 w-4 shrink-0 transition-opacity opacity-70 group-hover:opacity-100"
+                style="color: {theme.cardTextColor};"
+              />
             </a>
           {/each}
         {/if}
@@ -178,17 +210,17 @@
 
     <!-- Bottom Footer Brand Badge -->
     <div class="py-6">
-      <Button
-        variant="ghost"
-        size="sm"
-        class="gap-1.5 text-xs text-muted-foreground/80 hover:text-foreground hover:bg-background/50 backdrop-blur"
+      <button
+        type="button"
+        class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium backdrop-blur transition-colors cursor-pointer border hover:opacity-90"
+        style="background-color: {theme.actionButtonBg}; color: {theme.mutedTextColor}; border-color: {theme.actionButtonBorder};"
         onclick={() => push('/register')}
       >
         <div class="flex h-4 w-4 items-center justify-center rounded bg-primary text-primary-foreground">
           <Link2 class="h-2.5 w-2.5" />
         </div>
-        <span>Dibuat dengan <strong>Link Mudah</strong></span>
-      </Button>
+        <span>Dibuat dengan <strong style="color: {theme.textColor};">Link Mudah</strong></span>
+      </button>
     </div>
   </div>
 {/if}

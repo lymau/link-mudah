@@ -67,9 +67,9 @@ func TestPublicPageCacheMiss(t *testing.T) {
 	mock.ExpectQuery(regexp.QuoteMeta(`SELECT username FROM users WHERE username = $1`)).
 		WithArgs("budi123").WillReturnRows(sqlmock.NewRows([]string{"username"}).AddRow("budi123"))
 	mock.ExpectQuery(regexp.QuoteMeta(`
-		SELECT COALESCE(bg_color, ''), COALESCE(font_family, ''), COALESCE(avatar_url, '')
+		SELECT COALESCE(bg_color, ''), COALESCE(font_family, ''), COALESCE(avatar_url, ''), COALESCE(title, ''), COALESCE(description, '')
 		FROM page_settings WHERE user_id = (SELECT id FROM users WHERE username = $1)`)).
-		WithArgs("budi123").WillReturnRows(sqlmock.NewRows([]string{"bg_color", "font_family", "avatar_url"}).AddRow("#fff", "Inter", "avatar.png"))
+		WithArgs("budi123").WillReturnRows(sqlmock.NewRows([]string{"bg_color", "font_family", "avatar_url", "title", "description"}).AddRow("#fff", "Inter", "avatar.png", "Budi Dev", "Software Engineer"))
 	mock.ExpectQuery(regexp.QuoteMeta(`
 		SELECT title, url FROM links
 		WHERE user_id = (SELECT id FROM users WHERE username = $1)

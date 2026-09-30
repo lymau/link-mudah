@@ -23,9 +23,11 @@
     Globe,
     Smartphone,
     Share2,
-    CheckCircle2
+    CheckCircle2,
+    Eye
   } from 'lucide-svelte';
   import { apiFetch, clearAuthToken, getAuthToken } from '$lib/api';
+  import { getAccessibleTheme } from '$lib/contrast';
 
   let user = $state({
     username: '',
@@ -33,7 +35,9 @@
     page_settings: {
       bg_color: '#f8fafc',
       font_family: 'Inter',
-      avatar_url: ''
+      avatar_url: '',
+      title: '',
+      description: ''
     },
     links: []
   });
@@ -55,6 +59,11 @@
   let settingsBgColor = $state('#f8fafc');
   let settingsFontFamily = $state('Inter');
   let settingsAvatarUrl = $state('');
+  let settingsTitle = $state('');
+  let settingsDescription = $state('');
+
+  // Reactive accessible theme calculation based on WCAG 2.1 contrast ratio
+  let previewTheme = $derived(getAccessibleTheme(settingsBgColor));
 
   const bgPresets = [
     { label: 'Putih Bersih', value: '#ffffff' },
@@ -84,7 +93,9 @@
         page_settings: {
           bg_color: data.page_settings?.bg_color || '#f8fafc',
           font_family: data.page_settings?.font_family || 'Inter',
-          avatar_url: data.page_settings?.avatar_url || ''
+          avatar_url: data.page_settings?.avatar_url || '',
+          title: data.page_settings?.title || '',
+          description: data.page_settings?.description || ''
         },
         links: data.links || []
       };
@@ -92,6 +103,8 @@
       settingsBgColor = user.page_settings.bg_color;
       settingsFontFamily = user.page_settings.font_family;
       settingsAvatarUrl = user.page_settings.avatar_url;
+      settingsTitle = user.page_settings.title;
+      settingsDescription = user.page_settings.description;
     } catch (err) {
       if (
         err.status === 401 ||
@@ -224,7 +237,9 @@
         body: JSON.stringify({
           bg_color: settingsBgColor,
           font_family: settingsFontFamily,
-          avatar_url: settingsAvatarUrl
+          avatar_url: settingsAvatarUrl,
+          title: settingsTitle,
+          description: settingsDescription
         })
       });
 
@@ -232,6 +247,8 @@
       user.page_settings.bg_color = res?.bg_color || settingsBgColor;
       user.page_settings.font_family = res?.font_family || settingsFontFamily;
       user.page_settings.avatar_url = res?.avatar_url || settingsAvatarUrl;
+      user.page_settings.title = res?.title || settingsTitle;
+      user.page_settings.description = res?.description || settingsDescription;
 
       showSuccessFeedback('Pengaturan tampilan berhasil diperbarui!');
     } catch (err) {
@@ -517,14 +534,42 @@
             <CardHeader>
               <div class="flex items-center gap-2">
                 <Palette class="h-5 w-5 text-primary" />
-                <CardTitle class="text-lg font-semibold">Pengaturan Tampilan</CardTitle>
+                <CardTitle class="text-lg font-semibold">Pengaturan Halaman Publik</CardTitle>
               </div>
               <CardDescription>
-                Sesuaikan warna latar belakang dan foto avatar halaman publik Anda.
+                Sesuaikan judul, deskripsi bio, warna latar, dan avatar profil publik Anda.
               </CardDescription>
             </CardHeader>
             <CardContent>
               <form onsubmit={handleSaveSettings} class="space-y-4">
+                <!-- Pengaturan Judul Halaman Public -->
+                <div class="space-y-2">
+                  <Label for="page-title">Judul Halaman Publik</Label>
+                  <Input
+                    id="page-title"
+                    bind:value={settingsTitle}
+                    placeholder={`contoh: ${user.username ? user.username : 'Nama Lengkap atau Brand'}`}
+                  />
+                  <p class="text-xs text-muted-foreground">
+                    Judul utama yang tampil di bawah avatar. Jika kosong, sistem otomatis memakai <code>@{user.username || 'username'}</code>.
+                  </p>
+                </div>
+
+                <!-- Pengaturan Deskripsi (di bawah avatar) -->
+                <div class="space-y-2">
+                  <Label for="page-description">Deskripsi Profil (di bawah avatar)</Label>
+                  <textarea
+                    id="page-description"
+                    bind:value={settingsDescription}
+                    rows="2"
+                    class="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-xs placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                    placeholder="contoh: Creator, Software Engineer & Tech Enthusiast"
+                  ></textarea>
+                  <p class="text-xs text-muted-foreground">
+                    Deskripsi singkat yang tampil tepat di bawah avatar dan judul pada halaman publik.
+                  </p>
+                </div>
+
                 <div class="space-y-2">
                   <Label for="avatar-url">URL Avatar / Foto Profil</Label>
                   <Input
@@ -567,6 +612,32 @@
                       class="h-9 w-9 rounded-md border border-input cursor-pointer p-0.5 bg-transparent"
                     />
                   </div>
+
+                  <!-- Indikator Rasio Kontras (Readability & Legibility WCAG 2.1) -->
+                  <div
+                    class="mt-2.5 p-3 rounded-lg border text-xs space-y-1.5 transition-colors"
+                    style={`background-color: ${previewTheme.isDark ? '#0f172a' : '#f8fafc'}; border-color: ${previewTheme.isDark ? '#334155' : '#e2e8f0'}; color: ${previewTheme.isDark ? '#f8fafc' : '#0f172a'};`}
+                  >
+                    <div class="flex items-center justify-between">
+                      <span class="font-semibold flex items-center gap-1.5">
+                        <Eye class="h-3.5 w-3.5 text-primary" />
+                        Rasio Kontras (WCAG 2.1):
+                      </span>
+                      <span
+                        class="font-bold px-2 py-0.5 rounded text-[11px]"
+                        style={`background-color: ${previewTheme.isDark ? '#334155' : '#e2e8f0'}; color: ${previewTheme.isDark ? '#38bdf8' : '#0284c7'};`}
+                      >
+                        {previewTheme.contrastRatio}:1 ({previewTheme.wcagLevel})
+                      </span>
+                    </div>
+                    <p class="text-[11px] leading-relaxed" style={`color: ${previewTheme.isDark ? '#cbd5e1' : '#64748b'};`}>
+                      {#if previewTheme.isDark}
+                        Latar gelap terdeteksi: Teks otomatis beralih ke putih/terang dengan kontras tinggi untuk menjamin keterbacaan (readability & legibility) maksimal.
+                      {:else}
+                        Latar terang terdeteksi: Teks otomatis beralih ke warna gelap dengan kontras tajam sesuai standar WCAG.
+                      {/if}
+                    </p>
+                  </div>
                 </div>
 
                 <div class="space-y-2">
@@ -603,42 +674,79 @@
                   <Smartphone class="h-4 w-4 text-primary" />
                   <CardTitle class="text-sm font-semibold">Pratinjau Langsung</CardTitle>
                 </div>
-                <Badge variant="outline" class="text-[11px] font-normal">Live</Badge>
+                <Badge variant="outline" class="text-[11px] font-normal">
+                  {previewTheme.isDark ? 'Mode Gelap' : 'Mode Terang'}
+                </Badge>
               </div>
             </CardHeader>
             <CardContent>
-              <div class="mx-auto max-w-[280px] rounded-3xl border-4 border-slate-800 bg-background p-4 shadow-xl overflow-hidden"
-                   style={`background-color: ${settingsBgColor}; font-family: ${settingsFontFamily};`}>
+              <div
+                class="mx-auto max-w-[280px] rounded-3xl border-4 border-slate-800 p-4 shadow-xl overflow-hidden transition-colors"
+                style={`background-color: ${settingsBgColor}; font-family: ${settingsFontFamily}; color: ${previewTheme.textColor};`}
+              >
                 <!-- Phone top bar -->
-                <div class="mx-auto h-3.5 w-20 rounded-full bg-slate-800/80 mb-4"></div>
+                <div
+                  class="mx-auto h-3.5 w-20 rounded-full mb-4"
+                  style={`background-color: ${previewTheme.isDark ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.15)'}`}
+                ></div>
 
                 <!-- Profile header in phone -->
                 <div class="text-center mb-5">
                   {#if settingsAvatarUrl}
                     <img
                       src={settingsAvatarUrl}
-                      alt={user.username}
-                      class="h-16 w-16 rounded-full mx-auto mb-2 object-cover border-2 border-white shadow-sm"
+                      alt={settingsTitle || user.username}
+                      class="h-16 w-16 rounded-full mx-auto mb-2 object-cover shadow-sm border-2"
+                      style={`border-color: ${previewTheme.borderColor};`}
                       onerror={(e) => { e.currentTarget.style.display = 'none'; }}
                     />
                   {:else}
-                    <div class="h-16 w-16 rounded-full bg-primary/10 text-primary mx-auto mb-2 flex items-center justify-center font-bold text-xl border-2 border-white shadow-sm">
+                    <div
+                      class="h-16 w-16 rounded-full mx-auto mb-2 flex items-center justify-center font-bold text-xl shadow-sm border-2"
+                      style={`background-color: ${previewTheme.avatarFallbackBg}; color: ${previewTheme.avatarFallbackText}; border-color: ${previewTheme.borderColor};`}
+                    >
                       {user.username ? user.username.slice(0, 1).toUpperCase() : 'U'}
                     </div>
                   {/if}
-                  <h3 class="font-bold text-sm text-foreground">@{user.username || 'username'}</h3>
-                  <p class="text-[11px] text-muted-foreground mt-0.5">Link-in-bio resmi</p>
+
+                  <!-- Judul Halaman Publik di Pratinjau -->
+                  <h3
+                    class="font-bold text-sm tracking-tight"
+                    style={`color: ${previewTheme.textColor};`}
+                  >
+                    {settingsTitle.trim() || `@${user.username || 'username'}`}
+                  </h3>
+
+                  {#if settingsTitle.trim()}
+                    <p class="text-[10px] font-mono opacity-80 mt-0.5" style={`color: ${previewTheme.subTextColor};`}>
+                      @{user.username || 'username'}
+                    </p>
+                  {/if}
+
+                  <!-- Deskripsi Profil di Pratinjau -->
+                  <p
+                    class="text-[11px] mt-1 leading-snug line-clamp-3"
+                    style={`color: ${previewTheme.mutedTextColor};`}
+                  >
+                    {settingsDescription.trim() || 'Link-in-bio resmi'}
+                  </p>
                 </div>
 
                 <!-- Links preview in phone -->
                 <div class="space-y-2">
                   {#if user.links.length === 0}
-                    <div class="p-2.5 rounded-lg border border-dashed text-center text-[11px] text-muted-foreground">
+                    <div
+                      class="p-2.5 rounded-lg border border-dashed text-center text-[11px]"
+                      style={`border-color: ${previewTheme.cardBorder}; color: ${previewTheme.mutedTextColor};`}
+                    >
                       Tautan akan muncul di sini
                     </div>
                   {:else}
                     {#each user.links as link}
-                      <div class="p-2.5 rounded-lg bg-card/90 border shadow-2xs text-center text-xs font-medium text-foreground truncate">
+                      <div
+                        class="p-2.5 rounded-lg border text-center text-xs font-semibold truncate transition-all shadow-xs"
+                        style={`background-color: ${previewTheme.cardBg}; color: ${previewTheme.cardTextColor}; border-color: ${previewTheme.cardBorder}; box-shadow: ${previewTheme.cardShadow};`}
+                      >
                         {link.title}
                       </div>
                     {/each}
@@ -646,7 +754,7 @@
                 </div>
 
                 <div class="mt-6 text-center">
-                  <span class="text-[10px] text-muted-foreground/80">Link Mudah</span>
+                  <span class="text-[10px]" style={`color: ${previewTheme.subTextColor};`}>Link Mudah</span>
                 </div>
               </div>
             </CardContent>

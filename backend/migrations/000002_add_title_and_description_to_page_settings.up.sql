@@ -1,0 +1,2 @@
+ALTER TABLE page_settings ADD COLUMN IF NOT EXISTS title TEXT;
+ALTER TABLE page_settings ADD COLUMN IF NOT EXISTS description TEXT;
