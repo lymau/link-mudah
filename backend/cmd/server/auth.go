@@ -65,9 +65,11 @@ type profileHandler struct {
 }
 
 type pageSettings struct {
-	BGColor    string `json:"bg_color"`
-	FontFamily string `json:"font_family"`
-	AvatarURL  string `json:"avatar_url"`
+	BGColor     string `json:"bg_color"`
+	FontFamily  string `json:"font_family"`
+	AvatarURL   string `json:"avatar_url"`
+	Title       string `json:"title"`
+	Description string `json:"description"`
 }
 
 type linkPayload struct {
@@ -85,11 +87,13 @@ type meResponse struct {
 }
 
 type publicPageResponse struct {
-	Username   string       `json:"username"`
-	BGColor    string       `json:"bg_color"`
-	FontFamily string       `json:"font_family"`
-	AvatarURL  string       `json:"avatar_url"`
-	Links      []publicLink `json:"links"`
+	Username    string       `json:"username"`
+	Title       string       `json:"title"`
+	Description string       `json:"description"`
+	BGColor     string       `json:"bg_color"`
+	FontFamily  string       `json:"font_family"`
+	AvatarURL   string       `json:"avatar_url"`
+	Links       []publicLink `json:"links"`
 }
 
 type publicLink struct {
@@ -98,9 +102,11 @@ type publicLink struct {
 }
 
 type settingsRequest struct {
-	BGColor    string `json:"bg_color"`
-	FontFamily string `json:"font_family"`
-	AvatarURL  string `json:"avatar_url"`
+	BGColor     string `json:"bg_color"`
+	FontFamily  string `json:"font_family"`
+	AvatarURL   string `json:"avatar_url"`
+	Title       string `json:"title"`
+	Description string `json:"description"`
 }
 
 type linkRequest struct {
@@ -147,9 +153,9 @@ func (h *profileHandler) publicPage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	_ = h.db.QueryRowContext(r.Context(), `
-		SELECT COALESCE(bg_color, ''), COALESCE(font_family, ''), COALESCE(avatar_url, '')
+		SELECT COALESCE(bg_color, ''), COALESCE(font_family, ''), COALESCE(avatar_url, ''), COALESCE(title, ''), COALESCE(description, '')
 		FROM page_settings WHERE user_id = (SELECT id FROM users WHERE username = $1)`, username).
-		Scan(&page.BGColor, &page.FontFamily, &page.AvatarURL)
+		Scan(&page.BGColor, &page.FontFamily, &page.AvatarURL, &page.Title, &page.Description)
 
 	rows, err := h.db.QueryContext(r.Context(), `
 		SELECT title, url FROM links
@@ -195,7 +201,7 @@ func (h *profileHandler) me(w http.ResponseWriter, r *http.Request) {
 	}
 
 	settings := pageSettings{}
-	_ = h.db.QueryRowContext(r.Context(), `SELECT bg_color, font_family, avatar_url FROM page_settings WHERE user_id = $1`, userID).Scan(&settings.BGColor, &settings.FontFamily, &settings.AvatarURL)
+	_ = h.db.QueryRowContext(r.Context(), `SELECT COALESCE(bg_color, ''), COALESCE(font_family, ''), COALESCE(avatar_url, ''), COALESCE(title, ''), COALESCE(description, '') FROM page_settings WHERE user_id = $1`, userID).Scan(&settings.BGColor, &settings.FontFamily, &settings.AvatarURL, &settings.Title, &settings.Description)
 
 	rows, err := h.db.QueryContext(r.Context(), `SELECT id, title, url, position FROM links WHERE user_id = $1 ORDER BY position ASC, created_at ASC`, userID)
 	if err != nil {
@@ -236,14 +242,18 @@ func (h *profileHandler) updateSettings(w http.ResponseWriter, r *http.Request) 
 
 	var stored pageSettings
 	if err := h.db.QueryRowContext(r.Context(), `
-		INSERT INTO page_settings (user_id, bg_color, font_family, avatar_url, updated_at)
-		VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
+		INSERT INTO page_settings (user_id, bg_color, font_family, avatar_url, title, description, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP)
 		ON CONFLICT (user_id) DO UPDATE SET
 			bg_color = EXCLUDED.bg_color,
 			font_family = EXCLUDED.font_family,
 			avatar_url = EXCLUDED.avatar_url,
+			title = EXCLUDED.title,
+			description = EXCLUDED.description,
 			updated_at = CURRENT_TIMESTAMP
-		RETURNING bg_color, font_family, avatar_url`, userID, input.BGColor, input.FontFamily, input.AvatarURL).Scan(&stored.BGColor, &stored.FontFamily, &stored.AvatarURL); err != nil {
+		RETURNING bg_color, font_family, avatar_url, COALESCE(title, ''), COALESCE(description, '')`,
+		userID, input.BGColor, input.FontFamily, input.AvatarURL, input.Title, input.Description).
+		Scan(&stored.BGColor, &stored.FontFamily, &stored.AvatarURL, &stored.Title, &stored.Description); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to update settings")
 		return
 	}

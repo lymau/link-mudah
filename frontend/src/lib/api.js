@@ -101,8 +101,12 @@ export async function apiFetch(endpoint, options = {}) {
   const payload = await parseResponse(response);
 
   if (!response.ok) {
-    const message = payload?.error || payload || 'Request failed';
-    throw new Error(message);
+    const message = payload?.error || (typeof payload === 'string' ? payload : 'Request failed');
+    const error = new Error(message);
+    error.status = response.status;
+    error.payload = payload;
+    error.response = response;
+    throw error;
   }
 
   return payload;

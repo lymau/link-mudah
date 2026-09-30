@@ -8,6 +8,7 @@
   import { Badge } from '$lib/components/ui/badge';
   import { Separator } from '$lib/components/ui/separator';
   import { Alert, AlertDescription } from '$lib/components/ui/alert';
+  import * as AlertDialog from '$lib/components/ui/alert-dialog';
   import {
     Link2,
     Plus,
@@ -23,9 +24,11 @@
     Globe,
     Smartphone,
     Share2,
-    CheckCircle2
+    CheckCircle2,
+    Eye
   } from 'lucide-svelte';
   import { apiFetch, clearAuthToken, getAuthToken } from '$lib/api';
+  import { getAccessibleTheme } from '$lib/contrast';
 
   let user = $state({
     username: '',
@@ -33,7 +36,9 @@
     page_settings: {
       bg_color: '#f8fafc',
       font_family: 'Inter',
-      avatar_url: ''
+      avatar_url: '',
+      title: '',
+      description: ''
     },
     links: []
   });
@@ -51,10 +56,20 @@
   let linkTitle = $state('');
   let linkUrl = $state('');
 
+  // Delete Alert Dialog State
+  let isDeleteDialogOpen = $state(false);
+  let linkToDelete = $state(null);
+  let isDeletingLink = $state(false);
+
   // Settings Form State
   let settingsBgColor = $state('#f8fafc');
   let settingsFontFamily = $state('Inter');
   let settingsAvatarUrl = $state('');
+  let settingsTitle = $state('');
+  let settingsDescription = $state('');
+
+  // Reactive accessible theme calculation based on WCAG 2.1 contrast ratio
+  let previewTheme = $derived(getAccessibleTheme(settingsBgColor));
 
   const bgPresets = [
     { label: 'Putih Bersih', value: '#ffffff' },
@@ -65,14 +80,16 @@
     { label: 'Dark Slate', value: '#0f172a' },
   ];
 
-  async function loadUserData() {
+  async function loadUserData(silent = false) {
     const token = getAuthToken();
     if (!token) {
       push('/login');
       return;
     }
 
-    isLoading = true;
+    if (!silent) {
+      isLoading = true;
+    }
     errorMessage = '';
     try {
       const data = await apiFetch('/api/me');
@@ -82,7 +99,9 @@
         page_settings: {
           bg_color: data.page_settings?.bg_color || '#f8fafc',
           font_family: data.page_settings?.font_family || 'Inter',
-          avatar_url: data.page_settings?.avatar_url || ''
+          avatar_url: data.page_settings?.avatar_url || '',
+          title: data.page_settings?.title || '',
+          description: data.page_settings?.description || ''
         },
         links: data.links || []
       };
@@ -90,14 +109,24 @@
       settingsBgColor = user.page_settings.bg_color;
       settingsFontFamily = user.page_settings.font_family;
       settingsAvatarUrl = user.page_settings.avatar_url;
+      settingsTitle = user.page_settings.title;
+      settingsDescription = user.page_settings.description;
     } catch (err) {
-      errorMessage = err.message || 'Gagal memuat profil.';
-      if (err.message?.includes('unauthorized') || err.message?.includes('token')) {
+      if (
+        err.status === 401 ||
+        err.message?.toLowerCase().includes('unauthorized') ||
+        err.message?.toLowerCase().includes('token') ||
+        err.message?.toLowerCase().includes('auth')
+      ) {
         clearAuthToken();
         push('/login');
+        return;
       }
+      errorMessage = err.message || 'Gagal memuat profil.';
     } finally {
-      isLoading = false;
+      if (!silent) {
+        isLoading = false;
+      }
     }
   }
 
@@ -131,13 +160,20 @@
     if (event && typeof event.preventDefault === 'function') {
       event.preventDefault();
     }
-    if (!linkTitle.trim() || !linkUrl.trim()) return;
+    if (!linkTitle.trim() || !linkUrl.trim()) {
+      errorMessage = 'Judul dan URL tautan tidak boleh kosong.';
+      return;
+    }
 
     isSavingLink = true;
     errorMessage = '';
     try {
       let formattedUrl = linkUrl.trim();
-      if (!/^https?:\/\//i.test(formattedUrl)) {
+      if (
+        !/^(https?|mailto|tel):\/\//i.test(formattedUrl) &&
+        !formattedUrl.startsWith('mailto:') &&
+        !formattedUrl.startsWith('tel:')
+      ) {
         formattedUrl = 'https://' + formattedUrl;
       }
 
@@ -159,27 +195,48 @@
         });
       }
 
-      await loadUserData();
+      await loadUserData(true);
       cancelLinkForm();
-      showSuccessFeedback('Tautan berhasil disimpan!');
+      showSuccessFeedback(editingLinkId ? 'Tautan berhasil diperbarui!' : 'Tautan berhasil disimpan!');
     } catch (err) {
+      if (err.status === 401) {
+        clearAuthToken();
+        push('/login');
+        return;
+      }
       errorMessage = err.message || 'Gagal menyimpan tautan.';
     } finally {
       isSavingLink = false;
     }
   }
 
-  async function handleDeleteLink(id) {
-    if (!confirm('Yakin ingin menghapus tautan ini?')) return;
+  function promptDeleteLink(link) {
+    linkToDelete = link;
+    isDeleteDialogOpen = true;
+  }
 
+  async function handleConfirmDelete() {
+    if (!linkToDelete) return;
+
+    isDeletingLink = true;
+    errorMessage = '';
     try {
-      await apiFetch(`/api/me/links/${id}`, {
+      await apiFetch(`/api/me/links/${linkToDelete.id}`, {
         method: 'DELETE'
       });
-      await loadUserData();
+      await loadUserData(true);
       showSuccessFeedback('Tautan berhasil dihapus.');
+      isDeleteDialogOpen = false;
+      linkToDelete = null;
     } catch (err) {
+      if (err.status === 401) {
+        clearAuthToken();
+        push('/login');
+        return;
+      }
       errorMessage = err.message || 'Gagal menghapus tautan.';
+    } finally {
+      isDeletingLink = false;
     }
   }
 
@@ -191,21 +248,31 @@
     isSavingSettings = true;
     errorMessage = '';
     try {
-      await apiFetch('/api/me/settings', {
+      const res = await apiFetch('/api/me/settings', {
         method: 'PUT',
         body: JSON.stringify({
           bg_color: settingsBgColor,
           font_family: settingsFontFamily,
-          avatar_url: settingsAvatarUrl
+          avatar_url: settingsAvatarUrl,
+          title: settingsTitle,
+          description: settingsDescription
         })
       });
 
-      user.page_settings.bg_color = settingsBgColor;
-      user.page_settings.font_family = settingsFontFamily;
-      user.page_settings.avatar_url = settingsAvatarUrl;
+      // Update state directly from API response to ensure synchronization
+      user.page_settings.bg_color = res?.bg_color || settingsBgColor;
+      user.page_settings.font_family = res?.font_family || settingsFontFamily;
+      user.page_settings.avatar_url = res?.avatar_url || settingsAvatarUrl;
+      user.page_settings.title = res?.title || settingsTitle;
+      user.page_settings.description = res?.description || settingsDescription;
 
       showSuccessFeedback('Pengaturan tampilan berhasil diperbarui!');
     } catch (err) {
+      if (err.status === 401) {
+        clearAuthToken();
+        push('/login');
+        return;
+      }
       errorMessage = err.message || 'Gagal menyimpan pengaturan.';
     } finally {
       isSavingSettings = false;
@@ -319,9 +386,28 @@
           <h1 class="text-2xl sm:text-3xl font-bold tracking-tight text-foreground">
             Kelola Tautan
           </h1>
-          <p class="text-sm text-muted-foreground mt-1">
-            Atur tautan dan desain tampilan link-in-bio Anda di <span class="font-mono text-foreground font-medium">/#/{user.username}</span>
-          </p>
+          <div class="flex flex-wrap items-center gap-2 mt-1.5 text-sm text-muted-foreground">
+            <span>Lihat halaman publik saya:</span>
+            {#if user.username}
+              <a
+                href={`/#/${user.username}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                class="inline-flex items-center gap-1 font-mono font-semibold text-primary hover:underline bg-primary/10 px-2 py-0.5 rounded-md text-xs sm:text-sm"
+                title="Buka halaman publik di tab baru"
+              >
+                /{user.username}
+                <ExternalLink class="h-3 w-3" />
+              </a>
+              <button
+                type="button"
+                onclick={copyPublicUrl}
+                class="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2 ml-1 cursor-pointer"
+              >
+                {copied ? '✓ Tersalin' : 'Salin URL'}
+              </button>
+            {/if}
+          </div>
         </div>
 
         <Button onclick={openAddLinkForm} class="gap-2 self-start sm:self-auto">
@@ -443,7 +529,7 @@
                           variant="ghost"
                           size="icon"
                           class="h-8 w-8 text-destructive/80 hover:text-destructive hover:bg-destructive/10"
-                          onclick={() => handleDeleteLink(link.id)}
+                          onclick={() => promptDeleteLink(link)}
                           title="Hapus Tautan"
                         >
                           <Trash2 class="h-4 w-4" />
@@ -464,14 +550,42 @@
             <CardHeader>
               <div class="flex items-center gap-2">
                 <Palette class="h-5 w-5 text-primary" />
-                <CardTitle class="text-lg font-semibold">Pengaturan Tampilan</CardTitle>
+                <CardTitle class="text-lg font-semibold">Pengaturan Halaman Publik</CardTitle>
               </div>
               <CardDescription>
-                Sesuaikan warna latar belakang dan foto avatar halaman publik Anda.
+                Sesuaikan judul, deskripsi bio, warna latar, dan avatar profil publik Anda.
               </CardDescription>
             </CardHeader>
             <CardContent>
               <form onsubmit={handleSaveSettings} class="space-y-4">
+                <!-- Pengaturan Judul Halaman Public -->
+                <div class="space-y-2">
+                  <Label for="page-title">Judul Halaman Publik</Label>
+                  <Input
+                    id="page-title"
+                    bind:value={settingsTitle}
+                    placeholder={`contoh: ${user.username ? user.username : 'Nama Lengkap atau Brand'}`}
+                  />
+                  <p class="text-xs text-muted-foreground">
+                    Judul utama yang tampil di bawah avatar. Jika kosong, sistem otomatis memakai <code>@{user.username || 'username'}</code>.
+                  </p>
+                </div>
+
+                <!-- Pengaturan Deskripsi (di bawah avatar) -->
+                <div class="space-y-2">
+                  <Label for="page-description">Deskripsi Profil (di bawah avatar)</Label>
+                  <textarea
+                    id="page-description"
+                    bind:value={settingsDescription}
+                    rows="2"
+                    class="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-xs placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                    placeholder="contoh: Creator, Software Engineer & Tech Enthusiast"
+                  ></textarea>
+                  <p class="text-xs text-muted-foreground">
+                    Deskripsi singkat yang tampil tepat di bawah avatar dan judul pada halaman publik.
+                  </p>
+                </div>
+
                 <div class="space-y-2">
                   <Label for="avatar-url">URL Avatar / Foto Profil</Label>
                   <Input
@@ -514,6 +628,32 @@
                       class="h-9 w-9 rounded-md border border-input cursor-pointer p-0.5 bg-transparent"
                     />
                   </div>
+
+                  <!-- Indikator Rasio Kontras (Readability & Legibility WCAG 2.1) -->
+                  <div
+                    class="mt-2.5 p-3 rounded-lg border text-xs space-y-1.5 transition-colors"
+                    style={`background-color: ${previewTheme.isDark ? '#0f172a' : '#f8fafc'}; border-color: ${previewTheme.isDark ? '#334155' : '#e2e8f0'}; color: ${previewTheme.isDark ? '#f8fafc' : '#0f172a'};`}
+                  >
+                    <div class="flex items-center justify-between">
+                      <span class="font-semibold flex items-center gap-1.5">
+                        <Eye class="h-3.5 w-3.5 text-primary" />
+                        Rasio Kontras (WCAG 2.1):
+                      </span>
+                      <span
+                        class="font-bold px-2 py-0.5 rounded text-[11px]"
+                        style={`background-color: ${previewTheme.isDark ? '#334155' : '#e2e8f0'}; color: ${previewTheme.isDark ? '#38bdf8' : '#0284c7'};`}
+                      >
+                        {previewTheme.contrastRatio}:1 ({previewTheme.wcagLevel})
+                      </span>
+                    </div>
+                    <p class="text-[11px] leading-relaxed" style={`color: ${previewTheme.isDark ? '#cbd5e1' : '#64748b'};`}>
+                      {#if previewTheme.isDark}
+                        Latar gelap terdeteksi: Teks otomatis beralih ke putih/terang dengan kontras tinggi untuk menjamin keterbacaan (readability & legibility) maksimal.
+                      {:else}
+                        Latar terang terdeteksi: Teks otomatis beralih ke warna gelap dengan kontras tajam sesuai standar WCAG.
+                      {/if}
+                    </p>
+                  </div>
                 </div>
 
                 <div class="space-y-2">
@@ -550,42 +690,79 @@
                   <Smartphone class="h-4 w-4 text-primary" />
                   <CardTitle class="text-sm font-semibold">Pratinjau Langsung</CardTitle>
                 </div>
-                <Badge variant="outline" class="text-[11px] font-normal">Live</Badge>
+                <Badge variant="outline" class="text-[11px] font-normal">
+                  {previewTheme.isDark ? 'Mode Gelap' : 'Mode Terang'}
+                </Badge>
               </div>
             </CardHeader>
             <CardContent>
-              <div class="mx-auto max-w-[280px] rounded-3xl border-4 border-slate-800 bg-background p-4 shadow-xl overflow-hidden"
-                   style={`background-color: ${settingsBgColor}; font-family: ${settingsFontFamily};`}>
+              <div
+                class="mx-auto max-w-[280px] rounded-3xl border-4 border-slate-800 p-4 shadow-xl overflow-hidden transition-colors"
+                style={`background-color: ${settingsBgColor}; font-family: ${settingsFontFamily}; color: ${previewTheme.textColor};`}
+              >
                 <!-- Phone top bar -->
-                <div class="mx-auto h-3.5 w-20 rounded-full bg-slate-800/80 mb-4"></div>
+                <div
+                  class="mx-auto h-3.5 w-20 rounded-full mb-4"
+                  style={`background-color: ${previewTheme.isDark ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.15)'}`}
+                ></div>
 
                 <!-- Profile header in phone -->
                 <div class="text-center mb-5">
                   {#if settingsAvatarUrl}
                     <img
                       src={settingsAvatarUrl}
-                      alt={user.username}
-                      class="h-16 w-16 rounded-full mx-auto mb-2 object-cover border-2 border-white shadow-sm"
+                      alt={settingsTitle || user.username}
+                      class="h-16 w-16 rounded-full mx-auto mb-2 object-cover shadow-sm border-2"
+                      style={`border-color: ${previewTheme.borderColor};`}
                       onerror={(e) => { e.currentTarget.style.display = 'none'; }}
                     />
                   {:else}
-                    <div class="h-16 w-16 rounded-full bg-primary/10 text-primary mx-auto mb-2 flex items-center justify-center font-bold text-xl border-2 border-white shadow-sm">
+                    <div
+                      class="h-16 w-16 rounded-full mx-auto mb-2 flex items-center justify-center font-bold text-xl shadow-sm border-2"
+                      style={`background-color: ${previewTheme.avatarFallbackBg}; color: ${previewTheme.avatarFallbackText}; border-color: ${previewTheme.borderColor};`}
+                    >
                       {user.username ? user.username.slice(0, 1).toUpperCase() : 'U'}
                     </div>
                   {/if}
-                  <h3 class="font-bold text-sm text-foreground">@{user.username || 'username'}</h3>
-                  <p class="text-[11px] text-muted-foreground mt-0.5">Link-in-bio resmi</p>
+
+                  <!-- Judul Halaman Publik di Pratinjau -->
+                  <h3
+                    class="font-bold text-sm tracking-tight"
+                    style={`color: ${previewTheme.textColor};`}
+                  >
+                    {settingsTitle.trim() || `@${user.username || 'username'}`}
+                  </h3>
+
+                  {#if settingsTitle.trim()}
+                    <p class="text-[10px] font-mono opacity-80 mt-0.5" style={`color: ${previewTheme.subTextColor};`}>
+                      @{user.username || 'username'}
+                    </p>
+                  {/if}
+
+                  <!-- Deskripsi Profil di Pratinjau -->
+                  <p
+                    class="text-[11px] mt-1 leading-snug line-clamp-3"
+                    style={`color: ${previewTheme.mutedTextColor};`}
+                  >
+                    {settingsDescription.trim() || 'Link-in-bio resmi'}
+                  </p>
                 </div>
 
                 <!-- Links preview in phone -->
                 <div class="space-y-2">
                   {#if user.links.length === 0}
-                    <div class="p-2.5 rounded-lg border border-dashed text-center text-[11px] text-muted-foreground">
+                    <div
+                      class="p-2.5 rounded-lg border border-dashed text-center text-[11px]"
+                      style={`border-color: ${previewTheme.cardBorder}; color: ${previewTheme.mutedTextColor};`}
+                    >
                       Tautan akan muncul di sini
                     </div>
                   {:else}
                     {#each user.links as link}
-                      <div class="p-2.5 rounded-lg bg-card/90 border shadow-2xs text-center text-xs font-medium text-foreground truncate">
+                      <div
+                        class="p-2.5 rounded-lg border text-center text-xs font-semibold truncate transition-all shadow-xs"
+                        style={`background-color: ${previewTheme.cardBg}; color: ${previewTheme.cardTextColor}; border-color: ${previewTheme.cardBorder}; box-shadow: ${previewTheme.cardShadow};`}
+                      >
                         {link.title}
                       </div>
                     {/each}
@@ -593,7 +770,7 @@
                 </div>
 
                 <div class="mt-6 text-center">
-                  <span class="text-[10px] text-muted-foreground/80">Link Mudah</span>
+                  <span class="text-[10px]" style={`color: ${previewTheme.subTextColor};`}>Link Mudah</span>
                 </div>
               </div>
             </CardContent>
@@ -602,4 +779,39 @@
       </div>
     {/if}
   </main>
+
+  <!-- Alert Dialog Konfirmasi Hapus Tautan (shadcn-svelte) -->
+  <AlertDialog.Root bind:open={isDeleteDialogOpen}>
+    <AlertDialog.Content>
+      <AlertDialog.Header>
+        <AlertDialog.Title>Hapus Tautan?</AlertDialog.Title>
+        <AlertDialog.Description>
+          Apakah Anda yakin ingin menghapus tautan <strong class="font-medium text-foreground">"{linkToDelete?.title}"</strong>? Tautan ini akan dihapus secara permanen dari halaman publik Anda dan tindakan ini tidak dapat dibatalkan.
+        </AlertDialog.Description>
+      </AlertDialog.Header>
+      <AlertDialog.Footer>
+        <AlertDialog.Cancel
+          disabled={isDeletingLink}
+          onclick={() => {
+            isDeleteDialogOpen = false;
+            linkToDelete = null;
+          }}
+        >
+          Batal
+        </AlertDialog.Cancel>
+        <AlertDialog.Action
+          variant="destructive"
+          disabled={isDeletingLink}
+          onclick={handleConfirmDelete}
+        >
+          {#if isDeletingLink}
+            <Loader2 class="mr-2 h-4 w-4 animate-spin" />
+            Menghapus...
+          {:else}
+            Hapus Tautan
+          {/if}
+        </AlertDialog.Action>
+      </AlertDialog.Footer>
+    </AlertDialog.Content>
+  </AlertDialog.Root>
 </div>
