@@ -8,6 +8,7 @@
   import { Badge } from '$lib/components/ui/badge';
   import { Separator } from '$lib/components/ui/separator';
   import { Alert, AlertDescription } from '$lib/components/ui/alert';
+  import * as AlertDialog from '$lib/components/ui/alert-dialog';
   import {
     Link2,
     Plus,
@@ -54,6 +55,11 @@
   let editingLinkId = $state(null);
   let linkTitle = $state('');
   let linkUrl = $state('');
+
+  // Delete Alert Dialog State
+  let isDeleteDialogOpen = $state(false);
+  let linkToDelete = $state(null);
+  let isDeletingLink = $state(false);
 
   // Settings Form State
   let settingsBgColor = $state('#f8fafc');
@@ -204,16 +210,24 @@
     }
   }
 
-  async function handleDeleteLink(id) {
-    if (!confirm('Yakin ingin menghapus tautan ini?')) return;
+  function promptDeleteLink(link) {
+    linkToDelete = link;
+    isDeleteDialogOpen = true;
+  }
 
+  async function handleConfirmDelete() {
+    if (!linkToDelete) return;
+
+    isDeletingLink = true;
     errorMessage = '';
     try {
-      await apiFetch(`/api/me/links/${id}`, {
+      await apiFetch(`/api/me/links/${linkToDelete.id}`, {
         method: 'DELETE'
       });
       await loadUserData(true);
       showSuccessFeedback('Tautan berhasil dihapus.');
+      isDeleteDialogOpen = false;
+      linkToDelete = null;
     } catch (err) {
       if (err.status === 401) {
         clearAuthToken();
@@ -221,6 +235,8 @@
         return;
       }
       errorMessage = err.message || 'Gagal menghapus tautan.';
+    } finally {
+      isDeletingLink = false;
     }
   }
 
@@ -513,7 +529,7 @@
                           variant="ghost"
                           size="icon"
                           class="h-8 w-8 text-destructive/80 hover:text-destructive hover:bg-destructive/10"
-                          onclick={() => handleDeleteLink(link.id)}
+                          onclick={() => promptDeleteLink(link)}
                           title="Hapus Tautan"
                         >
                           <Trash2 class="h-4 w-4" />
@@ -763,4 +779,39 @@
       </div>
     {/if}
   </main>
+
+  <!-- Alert Dialog Konfirmasi Hapus Tautan (shadcn-svelte) -->
+  <AlertDialog.Root bind:open={isDeleteDialogOpen}>
+    <AlertDialog.Content>
+      <AlertDialog.Header>
+        <AlertDialog.Title>Hapus Tautan?</AlertDialog.Title>
+        <AlertDialog.Description>
+          Apakah Anda yakin ingin menghapus tautan <strong class="font-medium text-foreground">"{linkToDelete?.title}"</strong>? Tautan ini akan dihapus secara permanen dari halaman publik Anda dan tindakan ini tidak dapat dibatalkan.
+        </AlertDialog.Description>
+      </AlertDialog.Header>
+      <AlertDialog.Footer>
+        <AlertDialog.Cancel
+          disabled={isDeletingLink}
+          onclick={() => {
+            isDeleteDialogOpen = false;
+            linkToDelete = null;
+          }}
+        >
+          Batal
+        </AlertDialog.Cancel>
+        <AlertDialog.Action
+          variant="destructive"
+          disabled={isDeletingLink}
+          onclick={handleConfirmDelete}
+        >
+          {#if isDeletingLink}
+            <Loader2 class="mr-2 h-4 w-4 animate-spin" />
+            Menghapus...
+          {:else}
+            Hapus Tautan
+          {/if}
+        </AlertDialog.Action>
+      </AlertDialog.Footer>
+    </AlertDialog.Content>
+  </AlertDialog.Root>
 </div>
