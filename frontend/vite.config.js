@@ -3,7 +3,7 @@ import tailwindcss from '@tailwindcss/vite'
 import { defineConfig } from 'vite'
 import { fileURLToPath, URL } from 'node:url'
 
-const backendTarget = process.env.VITE_BACKEND_PROXY_URL || (typeof process !== 'undefined' && process.env.NODE_ENV === 'production' ? 'http://localhost:8080' : 'http://backend:8080')
+const backendTarget = process.env.VITE_BACKEND_PROXY_URL || 'http://localhost:8080'
 
 export default defineConfig({
   plugins: [svelte(), tailwindcss()],

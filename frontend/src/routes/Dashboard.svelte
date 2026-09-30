@@ -65,14 +65,16 @@
     { label: 'Dark Slate', value: '#0f172a' },
   ];
 
-  async function loadUserData() {
+  async function loadUserData(silent = false) {
     const token = getAuthToken();
     if (!token) {
       push('/login');
       return;
     }
 
-    isLoading = true;
+    if (!silent) {
+      isLoading = true;
+    }
     errorMessage = '';
     try {
       const data = await apiFetch('/api/me');
@@ -91,13 +93,21 @@
       settingsFontFamily = user.page_settings.font_family;
       settingsAvatarUrl = user.page_settings.avatar_url;
     } catch (err) {
-      errorMessage = err.message || 'Gagal memuat profil.';
-      if (err.message?.includes('unauthorized') || err.message?.includes('token')) {
+      if (
+        err.status === 401 ||
+        err.message?.toLowerCase().includes('unauthorized') ||
+        err.message?.toLowerCase().includes('token') ||
+        err.message?.toLowerCase().includes('auth')
+      ) {
         clearAuthToken();
         push('/login');
+        return;
       }
+      errorMessage = err.message || 'Gagal memuat profil.';
     } finally {
-      isLoading = false;
+      if (!silent) {
+        isLoading = false;
+      }
     }
   }
 
@@ -131,13 +141,20 @@
     if (event && typeof event.preventDefault === 'function') {
       event.preventDefault();
     }
-    if (!linkTitle.trim() || !linkUrl.trim()) return;
+    if (!linkTitle.trim() || !linkUrl.trim()) {
+      errorMessage = 'Judul dan URL tautan tidak boleh kosong.';
+      return;
+    }
 
     isSavingLink = true;
     errorMessage = '';
     try {
       let formattedUrl = linkUrl.trim();
-      if (!/^https?:\/\//i.test(formattedUrl)) {
+      if (
+        !/^(https?|mailto|tel):\/\//i.test(formattedUrl) &&
+        !formattedUrl.startsWith('mailto:') &&
+        !formattedUrl.startsWith('tel:')
+      ) {
         formattedUrl = 'https://' + formattedUrl;
       }
 
@@ -159,10 +176,15 @@
         });
       }
 
-      await loadUserData();
+      await loadUserData(true);
       cancelLinkForm();
-      showSuccessFeedback('Tautan berhasil disimpan!');
+      showSuccessFeedback(editingLinkId ? 'Tautan berhasil diperbarui!' : 'Tautan berhasil disimpan!');
     } catch (err) {
+      if (err.status === 401) {
+        clearAuthToken();
+        push('/login');
+        return;
+      }
       errorMessage = err.message || 'Gagal menyimpan tautan.';
     } finally {
       isSavingLink = false;
@@ -172,13 +194,19 @@
   async function handleDeleteLink(id) {
     if (!confirm('Yakin ingin menghapus tautan ini?')) return;
 
+    errorMessage = '';
     try {
       await apiFetch(`/api/me/links/${id}`, {
         method: 'DELETE'
       });
-      await loadUserData();
+      await loadUserData(true);
       showSuccessFeedback('Tautan berhasil dihapus.');
     } catch (err) {
+      if (err.status === 401) {
+        clearAuthToken();
+        push('/login');
+        return;
+      }
       errorMessage = err.message || 'Gagal menghapus tautan.';
     }
   }
@@ -191,7 +219,7 @@
     isSavingSettings = true;
     errorMessage = '';
     try {
-      await apiFetch('/api/me/settings', {
+      const res = await apiFetch('/api/me/settings', {
         method: 'PUT',
         body: JSON.stringify({
           bg_color: settingsBgColor,
@@ -200,12 +228,18 @@
         })
       });
 
-      user.page_settings.bg_color = settingsBgColor;
-      user.page_settings.font_family = settingsFontFamily;
-      user.page_settings.avatar_url = settingsAvatarUrl;
+      // Update state directly from API response to ensure synchronization
+      user.page_settings.bg_color = res?.bg_color || settingsBgColor;
+      user.page_settings.font_family = res?.font_family || settingsFontFamily;
+      user.page_settings.avatar_url = res?.avatar_url || settingsAvatarUrl;
 
       showSuccessFeedback('Pengaturan tampilan berhasil diperbarui!');
     } catch (err) {
+      if (err.status === 401) {
+        clearAuthToken();
+        push('/login');
+        return;
+      }
       errorMessage = err.message || 'Gagal menyimpan pengaturan.';
     } finally {
       isSavingSettings = false;
@@ -319,9 +353,28 @@
           <h1 class="text-2xl sm:text-3xl font-bold tracking-tight text-foreground">
             Kelola Tautan
           </h1>
-          <p class="text-sm text-muted-foreground mt-1">
-            Atur tautan dan desain tampilan link-in-bio Anda di <span class="font-mono text-foreground font-medium">/#/{user.username}</span>
-          </p>
+          <div class="flex flex-wrap items-center gap-2 mt-1.5 text-sm text-muted-foreground">
+            <span>Lihat halaman publik saya:</span>
+            {#if user.username}
+              <a
+                href={`/#/${user.username}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                class="inline-flex items-center gap-1 font-mono font-semibold text-primary hover:underline bg-primary/10 px-2 py-0.5 rounded-md text-xs sm:text-sm"
+                title="Buka halaman publik di tab baru"
+              >
+                /{user.username}
+                <ExternalLink class="h-3 w-3" />
+              </a>
+              <button
+                type="button"
+                onclick={copyPublicUrl}
+                class="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2 ml-1 cursor-pointer"
+              >
+                {copied ? '✓ Tersalin' : 'Salin URL'}
+              </button>
+            {/if}
+          </div>
         </div>
 
         <Button onclick={openAddLinkForm} class="gap-2 self-start sm:self-auto">
