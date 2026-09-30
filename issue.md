@@ -270,10 +270,10 @@ Halaman utama setelah login, tempat user mengatur halaman publik mereka.
 Halaman yang dilihat pengunjung umum ketika membuka `domain.com/{username}`.
 
 **Tugas**
-- [ ] Di route wildcard `/*` (dari Issue #8), ambil segmen path sebagai `username`.
-- [ ] Panggil `GET /api/public/{username}`. Jika 404, tampilkan halaman sederhana "Halaman tidak ditemukan".
-- [ ] Render halaman publik: background sesuai `bg_color`, font sesuai `font_family`, avatar (jika ada), dan daftar tombol tautan yang bisa diklik (`title` sebagai teks, `url` sebagai tujuan, buka di tab baru).
-- [ ] Pastikan halaman ini tetap ringan — tidak memuat kode dashboard/auth yang tidak perlu (boleh lazy-load komponen dashboard secara terpisah jika diperlukan).
+- [x] Di route wildcard `/*` (dari Issue #8), ambil segmen path sebagai `username`.
+- [x] Panggil `GET /api/public/{username}`. Jika 404, tampilkan halaman sederhana "Halaman tidak ditemukan".
+- [x] Render halaman publik: background sesuai `bg_color`, font sesuai `font_family`, avatar (jika ada), dan daftar tombol tautan yang bisa diklik (`title` sebagai teks, `url` sebagai tujuan, buka di tab baru).
+- [x] Pastikan halaman ini tetap ringan — tidak memuat kode dashboard/auth yang tidak perlu (boleh lazy-load komponen dashboard secara terpisah jika diperlukan).
 
 **Kriteria Selesai**
 - Membuka `http://localhost:5173/budi123` (username yang sudah dibuat sebelumnya) menampilkan tema dan daftar tautan yang benar sesuai yang diatur di dashboard.

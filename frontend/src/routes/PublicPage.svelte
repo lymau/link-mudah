@@ -1,10 +1,10 @@
 <script>
   import { onMount } from 'svelte';
-  import { push } from 'svelte-spa-router';
+  import { push, replace } from 'svelte-spa-router';
   import { Button } from '$lib/components/ui/button';
   import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '$lib/components/ui/card';
   import { Badge } from '$lib/components/ui/badge';
-  import { Link2, ExternalLink, UserX, Loader2, Share2, Check } from 'lucide-svelte';
+  import { Link2, ExternalLink, UserX, Loader2, Share2, Check, WifiOff } from 'lucide-svelte';
   import { apiFetch } from '$lib/api';
   import { getAccessibleTheme } from '$lib/contrast';
 
@@ -12,37 +12,54 @@
 
   let profile = $state(null);
   let isLoading = $state(true);
-  let error = $state('');
+  let errorStatus = $state(null);
+  let errorMessage = $state('');
   let currentUsername = $state('');
   let copied = $state(false);
 
   let theme = $derived(getAccessibleTheme(profile?.bg_color || '#f8fafc'));
 
-  function getUsername() {
-    if (params && params['*']) {
-      return params['*'].replace(/^\//, '');
+  function extractUsername() {
+    let raw = '';
+    if (params && params.wild) {
+      raw = params.wild;
+    } else if (params && params['*']) {
+      raw = params['*'];
+    } else if (typeof window !== 'undefined' && window.location.hash) {
+      raw = window.location.hash.slice(1).split('?')[0];
     }
-    if (typeof window !== 'undefined' && window.location.hash) {
-      const path = window.location.hash.slice(1).split('?')[0];
-      return path.replace(/^\//, '');
+    raw = (raw || '').replace(/^\/+|\/+$/g, '');
+    if (raw.includes('/')) {
+      raw = raw.split('/')[0];
     }
-    return '';
+    return raw;
   }
 
-  async function loadProfile() {
-    const rawUsername = getUsername();
-    if (!rawUsername) {
-      error = 'Username tidak valid.';
-      isLoading = false;
+  async function loadProfile(targetUsername) {
+    const target = (targetUsername || '').trim();
+    if (!target) {
+      replace('/');
       return;
     }
 
-    currentUsername = rawUsername;
+    // Do not treat /login, /dashboard, or /register as usernames
+    const lower = target.toLowerCase();
+    if (lower === 'login' || lower === 'dashboard') {
+      replace('/' + lower);
+      return;
+    }
+    if (lower === 'register') {
+      replace('/register');
+      return;
+    }
+
+    currentUsername = target;
     isLoading = true;
-    error = '';
+    errorStatus = null;
+    errorMessage = '';
 
     try {
-      const data = await apiFetch(`/api/public/${encodeURIComponent(rawUsername)}`);
+      const data = await apiFetch(`/api/public/${encodeURIComponent(target)}`);
       profile = {
         username: data.username,
         title: data.title || '',
@@ -54,11 +71,20 @@
       };
 
       if (typeof document !== 'undefined') {
-        const displayTitle = profile.title ? `${profile.title} (@${profile.username})` : `@${profile.username}`;
+        const displayTitle = profile.title?.trim()
+          ? `${profile.title.trim()} (@${profile.username})`
+          : `@${profile.username}`;
         document.title = `${displayTitle} | Link Mudah`;
       }
     } catch (err) {
-      error = err.message || 'Profil tidak ditemukan.';
+      profile = null;
+      if (err.status === 404 || err.message?.toLowerCase().includes('not found') || err.message?.toLowerCase().includes('tidak ditemukan')) {
+        errorStatus = 404;
+        errorMessage = 'Halaman tidak ditemukan';
+      } else {
+        errorStatus = err.status || 500;
+        errorMessage = err.message || 'Gagal memuat profil.';
+      }
     } finally {
       isLoading = false;
     }
@@ -72,8 +98,20 @@
     }, 2000);
   }
 
+  $effect(() => {
+    const raw = extractUsername();
+    if (raw && raw !== currentUsername) {
+      loadProfile(raw);
+    }
+  });
+
   onMount(() => {
-    loadProfile();
+    const raw = extractUsername();
+    if (raw) {
+      loadProfile(raw);
+    } else {
+      replace('/');
+    }
   });
 </script>
 
@@ -84,16 +122,16 @@
       <p class="text-sm font-medium">Memuat profil...</p>
     </div>
   </div>
-{:else if error || !profile}
+{:else if errorStatus === 404}
   <div class="flex min-h-screen items-center justify-center bg-muted/40 p-4">
     <Card class="w-full max-w-md shadow-md text-center">
       <CardHeader class="flex flex-col items-center space-y-2">
         <div class="flex h-12 w-12 items-center justify-center rounded-full bg-destructive/10 text-destructive mb-1">
           <UserX class="h-6 w-6" />
         </div>
-        <CardTitle class="text-2xl">Halaman Tidak Ditemukan</CardTitle>
+        <CardTitle class="text-2xl font-bold tracking-tight">Halaman tidak ditemukan</CardTitle>
         <CardDescription class="max-w-xs mx-auto">
-          {error || `Pengguna '@${currentUsername}' belum terdaftar di Link Mudah.`}
+          Pengguna '@{currentUsername}' belum terdaftar di Link Mudah.
         </CardDescription>
       </CardHeader>
       <CardContent class="flex flex-col gap-2 pt-2">
@@ -102,6 +140,28 @@
         </Button>
         <Button variant="outline" onclick={() => push('/login')} class="w-full">
           Masuk ke Akun
+        </Button>
+      </CardContent>
+    </Card>
+  </div>
+{:else if errorStatus}
+  <div class="flex min-h-screen items-center justify-center bg-muted/40 p-4">
+    <Card class="w-full max-w-md shadow-md text-center">
+      <CardHeader class="flex flex-col items-center space-y-2">
+        <div class="flex h-12 w-12 items-center justify-center rounded-full bg-amber-500/10 text-amber-500 mb-1">
+          <WifiOff class="h-6 w-6" />
+        </div>
+        <CardTitle class="text-2xl font-bold tracking-tight">Gagal Memuat Halaman</CardTitle>
+        <CardDescription class="max-w-xs mx-auto">
+          {errorMessage || 'Terjadi gangguan saat menghubungi server. Silakan periksa koneksi Anda.'}
+        </CardDescription>
+      </CardHeader>
+      <CardContent class="flex flex-col gap-2 pt-2">
+        <Button onclick={() => loadProfile(currentUsername)} class="w-full">
+          Coba Lagi
+        </Button>
+        <Button variant="outline" onclick={() => push('/')} class="w-full">
+          Kembali ke Beranda
         </Button>
       </CardContent>
     </Card>
@@ -133,7 +193,7 @@
     <div class="w-full max-w-lg my-auto py-8">
       <!-- Profile Header -->
       <div class="flex flex-col items-center text-center mb-8">
-        {#if profile.avatar_url}
+        {#if profile.avatar_url && profile.avatar_url.trim()}
           <img
             src={profile.avatar_url}
             alt={profile.title || profile.username}
@@ -141,13 +201,6 @@
             style="border-color: {theme.borderColor};"
             onerror={(e) => { e.currentTarget.style.display = 'none'; }}
           />
-        {:else}
-          <div
-            class="flex h-24 w-24 items-center justify-center rounded-full text-3xl font-bold shadow-md border-4 mb-4"
-            style="background-color: {theme.avatarFallbackBg}; color: {theme.avatarFallbackText}; border-color: {theme.borderColor};"
-          >
-            {profile.username ? profile.username.slice(0, 1).toUpperCase() : 'U'}
-          </div>
         {/if}
 
         <!-- Judul Halaman Publik -->
