@@ -42,26 +42,20 @@ async function parseResponse(response) {
   return response.text();
 }
 
-function getApiBaseUrl() {
+export function getApiBaseUrl() {
   const envUrl = import.meta.env.VITE_API_BASE_URL;
-
-  // In browser, if we are browsing the Vite dev server, prefer relative path
-  // so requests go through Vite's dev server proxy to avoid cross-origin / localhost resolution issues
-  if (typeof window !== 'undefined') {
-    if (!envUrl || envUrl.includes('localhost:8080') || envUrl.includes('127.0.0.1:8080')) {
-      return '';
-    }
-  }
-
-  return envUrl || '';
+  return (envUrl || '').replace(/\/+$/, '');
 }
 
 export async function apiFetch(endpoint, options = {}) {
   const headers = new Headers(options.headers || {});
-  const token = getAuthToken();
 
-  if (token && !headers.has('Authorization')) {
-    headers.set('Authorization', `Bearer ${token}`);
+  // Do not send authorization headers on public routes unless explicitly requested
+  if (!options.skipAuth && !endpoint.startsWith('/api/public')) {
+    const token = getAuthToken();
+    if (token && !headers.has('Authorization')) {
+      headers.set('Authorization', `Bearer ${token}`);
+    }
   }
 
   if (
