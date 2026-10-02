@@ -23,6 +23,7 @@
     ArrowRight
   } from 'lucide-svelte';
   import { apiFetch, setAuthToken } from '$lib/api';
+  import { toast } from '$lib/components/ui/sonner';
 
   let email = $state('');
   let password = $state('');
@@ -44,9 +45,11 @@
       });
 
       setAuthToken(data.token);
+      toast.success('Berhasil masuk! Mengalihkan ke dashboard...');
       push('/dashboard');
     } catch (err) {
       error = err.message || 'Login gagal. Periksa kembali email dan password Anda.';
+      toast.error(error);
     } finally {
       isSubmitting = false;
     }

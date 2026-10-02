@@ -153,3 +153,16 @@ body {
 #app {
   min-height: 100vh;
 }
+
+/* Ensure toast is positioned below the sticky header (header height = 64px) so header content is not obscured */
+[data-sonner-toaster][data-y-position='top'] {
+  --offset-top: 76px !important;
+  --mobile-offset-top: 76px !important;
+  top: 76px !important;
+}
+
+@media (max-width: 600px) {
+  [data-sonner-toaster][data-y-position='top'] {
+    top: 76px !important;
+  }
+}

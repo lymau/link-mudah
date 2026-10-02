@@ -14,7 +14,7 @@
   import { Label } from '$lib/components/ui/label';
   import { Badge } from '$lib/components/ui/badge';
   import { Separator } from '$lib/components/ui/separator';
-  import { Alert, AlertDescription } from '$lib/components/ui/alert';
+  import { toast } from '$lib/components/ui/sonner';
   import * as AlertDialog from '$lib/components/ui/alert-dialog';
   import { Tabs, TabsContent, TabsList, TabsTrigger } from '$lib/components/ui/tabs';
   import { Avatar, AvatarFallback, AvatarImage } from '$lib/components/ui/avatar';
@@ -28,12 +28,10 @@
     Palette,
     Check,
     Loader2,
-    AlertCircle,
     User,
     Globe,
     Smartphone,
     Share2,
-    CheckCircle2,
     Eye,
     Sparkles,
     Copy,
@@ -58,8 +56,6 @@
   let isLoading = $state(true);
   let isSavingSettings = $state(false);
   let isSavingLink = $state(false);
-  let errorMessage = $state('');
-  let successMessage = $state('');
   let copied = $state(false);
 
   // Active Tab: 'links' | 'appearance' | 'preview'
@@ -105,7 +101,6 @@
     if (!silent) {
       isLoading = true;
     }
-    errorMessage = '';
     try {
       const data = await apiFetch('/api/me');
       user = {
@@ -137,7 +132,7 @@
         push('/login');
         return;
       }
-      errorMessage = err.message || 'Gagal memuat profil.';
+      toast.error(err.message || 'Gagal memuat profil.');
     } finally {
       if (!silent) {
         isLoading = false;
@@ -147,6 +142,7 @@
 
   function handleLogout() {
     clearAuthToken();
+    toast.info('Berhasil keluar dari akun.');
     push('/login');
   }
 
@@ -182,12 +178,11 @@
       event.preventDefault();
     }
     if (!linkTitle.trim() || !linkUrl.trim()) {
-      errorMessage = 'Judul dan URL tautan tidak boleh kosong.';
+      toast.error('Judul dan URL tautan tidak boleh kosong.');
       return;
     }
 
     isSavingLink = true;
-    errorMessage = '';
     try {
       let formattedUrl = linkUrl.trim();
       if (
@@ -198,7 +193,8 @@
         formattedUrl = 'https://' + formattedUrl;
       }
 
-      if (editingLinkId) {
+      const isEditing = Boolean(editingLinkId);
+      if (isEditing) {
         await apiFetch(`/api/me/links/${editingLinkId}`, {
           method: 'PUT',
           body: JSON.stringify({
@@ -218,14 +214,14 @@
 
       await loadUserData(true);
       cancelLinkForm();
-      showSuccessFeedback(editingLinkId ? 'Tautan berhasil diperbarui!' : 'Tautan berhasil disimpan!');
+      toast.success(isEditing ? 'Tautan berhasil diperbarui!' : 'Tautan baru berhasil disimpan!');
     } catch (err) {
       if (err.status === 401) {
         clearAuthToken();
         push('/login');
         return;
       }
-      errorMessage = err.message || 'Gagal menyimpan tautan.';
+      toast.error(err.message || (editingLinkId ? 'Gagal memperbarui tautan.' : 'Gagal menyimpan tautan.'));
     } finally {
       isSavingLink = false;
     }
@@ -240,13 +236,13 @@
     if (!linkToDelete) return;
 
     isDeletingLink = true;
-    errorMessage = '';
+    const targetTitle = linkToDelete.title;
     try {
       await apiFetch(`/api/me/links/${linkToDelete.id}`, {
         method: 'DELETE'
       });
       await loadUserData(true);
-      showSuccessFeedback('Tautan berhasil dihapus.');
+      toast.success(`Tautan "${targetTitle}" berhasil dihapus.`);
       isDeleteDialogOpen = false;
       linkToDelete = null;
     } catch (err) {
@@ -255,7 +251,7 @@
         push('/login');
         return;
       }
-      errorMessage = err.message || 'Gagal menghapus tautan.';
+      toast.error(err.message || 'Gagal menghapus tautan.');
     } finally {
       isDeletingLink = false;
     }
@@ -267,7 +263,6 @@
     }
 
     isSavingSettings = true;
-    errorMessage = '';
     try {
       const res = await apiFetch('/api/me/settings', {
         method: 'PUT',
@@ -287,30 +282,24 @@
       user.page_settings.title = res?.title || settingsTitle;
       user.page_settings.description = res?.description || settingsDescription;
 
-      showSuccessFeedback('Pengaturan tampilan berhasil diperbarui!');
+      toast.success('Pengaturan tampilan berhasil diperbarui!');
     } catch (err) {
       if (err.status === 401) {
         clearAuthToken();
         push('/login');
         return;
       }
-      errorMessage = err.message || 'Gagal menyimpan pengaturan.';
+      toast.error(err.message || 'Gagal menyimpan pengaturan.');
     } finally {
       isSavingSettings = false;
     }
-  }
-
-  function showSuccessFeedback(msg) {
-    successMessage = msg;
-    setTimeout(() => {
-      successMessage = '';
-    }, 3000);
   }
 
   function copyPublicUrl() {
     const publicUrl = `${window.location.origin}/#/${user.username}`;
     navigator.clipboard.writeText(publicUrl);
     copied = true;
+    toast.success('Tautan publik berhasil disalin ke papan klip!');
     setTimeout(() => {
       copied = false;
     }, 2000);
@@ -318,6 +307,18 @@
 
   onMount(() => {
     loadUserData();
+  });
+
+  $effect(() => {
+    if (typeof window !== 'undefined') {
+      const handleResize = () => {
+        if (window.innerWidth >= 1024 && activeTab === 'preview') {
+          activeTab = 'links';
+        }
+      };
+      window.addEventListener('resize', handleResize);
+      return () => window.removeEventListener('resize', handleResize);
+    }
   });
 </script>
 
@@ -328,16 +329,31 @@
         <Smartphone class="h-4 w-4 text-primary" />
         <CardTitle class="text-sm font-bold">Pratinjau Langsung</CardTitle>
       </div>
-      <Badge variant="outline" class="text-[11px] font-normal">
-        {previewTheme.isDark ? 'Latar Gelap' : 'Latar Terang'}
-      </Badge>
+      <div class="flex items-center gap-1.5">
+        <Badge variant="outline" class="text-[11px] font-normal">
+          {previewTheme.isDark ? 'Latar Gelap' : 'Latar Terang'}
+        </Badge>
+        {#if user.username}
+          <Button
+            variant="ghost"
+            size="icon"
+            class="h-7 w-7 text-muted-foreground hover:text-foreground"
+            href={`/#/${user.username}`}
+            target="_blank"
+            title="Buka halaman publik di tab baru"
+            aria-label="Buka halaman publik"
+          >
+            <ExternalLink class="h-3.5 w-3.5" />
+          </Button>
+        {/if}
+      </div>
     </CardHeader>
 
     <CardContent class="pt-0">
       <!-- Smartphone Mockup Frame -->
       <div
-        class="mx-auto max-w-[280px] rounded-[2.5rem] border-[6px] border-slate-900 p-4 shadow-2xl overflow-hidden transition-colors relative"
-        style={`background-color: ${settingsBgColor}; font-family: ${settingsFontFamily}; color: ${previewTheme.textColor};`}
+        class="mx-auto max-w-[280px] min-h-[420px] max-h-[520px] rounded-[2.5rem] border-[6px] border-slate-900 p-4 shadow-2xl overflow-y-auto transition-colors relative"
+        style={`background-color: ${settingsBgColor}; font-family: ${settingsFontFamily}; color: ${previewTheme.textColor}; scrollbar-width: thin;`}
       >
         <!-- Phone notch / speaker -->
         <div
@@ -366,21 +382,21 @@
 
           <!-- Judul Halaman Publik di Pratinjau -->
           <h3
-            class="font-bold text-sm tracking-tight"
+            class="font-bold text-sm tracking-tight break-words"
             style={`color: ${previewTheme.textColor};`}
           >
             {settingsTitle.trim() || `@${user.username || 'username'}`}
           </h3>
 
           {#if settingsTitle.trim()}
-            <p class="text-[10px] font-mono opacity-80 mt-0.5" style={`color: ${previewTheme.subTextColor};`}>
+            <p class="text-[10px] font-mono opacity-80 mt-0.5 break-words" style={`color: ${previewTheme.subTextColor};`}>
               @{user.username || 'username'}
             </p>
           {/if}
 
           <!-- Deskripsi Profil di Pratinjau -->
           <p
-            class="text-[11px] mt-1 leading-snug line-clamp-3"
+            class="text-[11px] mt-1 leading-snug line-clamp-3 break-words"
             style={`color: ${previewTheme.mutedTextColor};`}
           >
             {settingsDescription.trim() || 'Link-in-bio resmi'}
@@ -398,12 +414,16 @@
             </div>
           {:else}
             {#each user.links as link}
-              <div
-                class="p-2.5 rounded-xl border text-center text-xs font-semibold truncate transition-all shadow-xs"
+              <a
+                href={link.url}
+                target="_blank"
+                rel="noreferrer"
+                class="block p-2.5 rounded-xl border text-center text-xs font-semibold truncate transition-all shadow-xs hover:opacity-90 cursor-pointer"
                 style={`background-color: ${previewTheme.cardBg}; color: ${previewTheme.cardTextColor}; border-color: ${previewTheme.cardBorder}; box-shadow: ${previewTheme.cardShadow};`}
+                title={link.title}
               >
                 {link.title}
-              </div>
+              </a>
             {/each}
           {/if}
         </div>
@@ -506,21 +526,6 @@
         <p class="text-sm font-medium">Memuat data dashboard Anda...</p>
       </div>
     {:else}
-      <!-- Notifications -->
-      {#if errorMessage}
-        <Alert variant="destructive" class="mb-6 shadow-sm">
-          <AlertCircle class="h-4 w-4" />
-          <AlertDescription class="font-medium">{errorMessage}</AlertDescription>
-        </Alert>
-      {/if}
-
-      {#if successMessage}
-        <Alert class="mb-6 border-emerald-500/30 bg-emerald-50 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300 shadow-sm">
-          <CheckCircle2 class="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
-          <AlertDescription class="font-medium">{successMessage}</AlertDescription>
-        </Alert>
-      {/if}
-
       <!-- Header & Welcome Banner -->
       <div class="mb-6 flex flex-col md:flex-row md:items-center md:justify-between gap-4 rounded-3xl border border-border/60 bg-card p-5 sm:p-6 shadow-sm">
         <div>
@@ -586,7 +591,7 @@
         <!-- 2-Column Responsive Layout on Desktop -->
         <div class="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
           <!-- Left Column: Links or Appearance Form (7 cols) -->
-          <div class={`space-y-6 lg:col-span-7 ${activeTab === 'preview' ? 'hidden lg:block' : 'block'}`}>
+          <div class="space-y-6 lg:col-span-7">
             <!-- TAB 1: Links Content -->
             <TabsContent value="links" class="space-y-6 m-0">
               <!-- Add / Edit Form Card -->
@@ -684,22 +689,23 @@
                   {:else}
                     <div class="space-y-2.5">
                       {#each user.links as link, i}
-                        <div class="flex items-center justify-between p-3.5 rounded-2xl border border-border/80 bg-card hover:bg-muted/40 transition-colors shadow-2xs group">
-                          <div class="min-w-0 flex-1 pr-3">
-                            <div class="flex items-center gap-2">
+                        <div class="flex items-center justify-between p-3.5 rounded-2xl border border-border/80 bg-card hover:bg-muted/40 transition-colors shadow-2xs group min-w-0 max-w-full">
+                          <div class="min-w-0 flex-1 pr-2 sm:pr-3 overflow-hidden">
+                            <div class="flex items-center gap-2 min-w-0">
                               <span class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[11px] font-bold text-primary">
                                 {i + 1}
                               </span>
-                              <h4 class="font-semibold text-sm text-foreground truncate">{link.title}</h4>
+                              <h4 class="font-semibold text-sm text-foreground truncate min-w-0 flex-1" title={link.title}>{link.title}</h4>
                             </div>
                             <a
                               href={link.url}
                               target="_blank"
                               rel="noreferrer"
-                              class="text-xs text-muted-foreground hover:text-primary truncate block mt-1 underline-offset-2 hover:underline inline-flex items-center gap-1"
+                              class="mt-1 flex items-center gap-1 text-xs text-muted-foreground hover:text-primary underline-offset-2 hover:underline min-w-0 max-w-full group/link"
+                              title={link.url}
                             >
-                              <span class="truncate">{link.url}</span>
-                              <ArrowUpRight class="h-3 w-3 shrink-0 opacity-60" />
+                              <span class="truncate min-w-0 flex-1">{link.url}</span>
+                              <ArrowUpRight class="h-3 w-3 shrink-0 opacity-60 group-hover/link:opacity-100 transition-opacity" />
                             </a>
                           </div>
 
@@ -891,8 +897,40 @@
             </TabsContent>
 
             <!-- TAB 3: Mobile Preview Content -->
-            <TabsContent value="preview" class="block lg:hidden m-0">
+            <TabsContent value="preview" class="m-0 lg:hidden space-y-4">
               {@render phonePreview()}
+
+              <!-- Quick helper card on Mobile -->
+              <Card class="shadow-sm border-border/80">
+                <CardContent class="p-4 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
+                  <div class="flex items-center gap-2 text-muted-foreground">
+                    <Sparkles class="h-4 w-4 text-primary shrink-0" />
+                    <span>Perubahan pada tautan & tema otomatis tersinkronisasi di pratinjau.</span>
+                  </div>
+                  <div class="flex items-center gap-2 w-full sm:w-auto shrink-0">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      class="flex-1 sm:flex-initial text-xs h-8"
+                      onclick={() => activeTab = 'appearance'}
+                    >
+                      <Palette class="h-3.5 w-3.5 mr-1.5" />
+                      Edit Tampilan
+                    </Button>
+                    {#if user.username}
+                      <Button
+                        size="sm"
+                        class="flex-1 sm:flex-initial text-xs h-8"
+                        href={`/#/${user.username}`}
+                        target="_blank"
+                      >
+                        <ExternalLink class="h-3.5 w-3.5 mr-1.5" />
+                        Buka Halaman
+                      </Button>
+                    {/if}
+                  </div>
+                </CardContent>
+              </Card>
             </TabsContent>
           </div>
 

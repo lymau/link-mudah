@@ -25,6 +25,7 @@
     Globe
   } from 'lucide-svelte';
   import { apiFetch } from '$lib/api';
+  import { toast } from '$lib/components/ui/sonner';
 
   let username = $state('');
   let email = $state('');
@@ -48,10 +49,13 @@
         body: JSON.stringify({ username, email, password }),
       });
 
-      successMessage = 'Pendaftaran akun berhasil! Mengalihkan ke halaman login...';
+      const successText = 'Pendaftaran akun berhasil! Mengalihkan ke halaman login...';
+      successMessage = successText;
+      toast.success(successText);
       setTimeout(() => push('/login'), 1200);
     } catch (err) {
       error = err.message || 'Registrasi gagal. Silakan coba lagi.';
+      toast.error(error);
     } finally {
       isSubmitting = false;
     }

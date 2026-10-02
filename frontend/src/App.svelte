@@ -3,6 +3,7 @@
   import { wrap } from 'svelte-spa-router/wrap'
   import PublicPage from './routes/PublicPage.svelte'
   import { getAuthToken } from './lib/api'
+  import { Toaster } from '$lib/components/ui/sonner'
 
   // If browser opens direct pathname without hash (e.g. /login or /register or /{username}), convert to hash for svelte-spa-router
   if (typeof window !== 'undefined' && window.location.pathname !== '/' && !window.location.hash) {
@@ -60,6 +61,12 @@
 
 <main class="min-h-screen bg-background text-foreground">
   <Router {routes} onConditionsFailed={handleConditionsFailed} />
+  <Toaster
+    position="top-right"
+    richColors
+    offset={{ top: "76px", right: "20px", bottom: "20px", left: "20px" }}
+    mobileOffset={{ top: "76px", left: "16px", right: "16px", bottom: "16px" }}
+  />
 </main>
 
 
