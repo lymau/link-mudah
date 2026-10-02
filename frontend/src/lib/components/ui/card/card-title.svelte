@@ -4,17 +4,15 @@
 		ref = $bindable(null),
 		class: className,
 		children,
-		tag: Tag = "h3",
 		...restProps
 	} = $props();
 </script>
 
-<svelte:element
-	this={Tag}
+<div
 	bind:this={ref}
 	data-slot="card-title"
-	class={cn("font-semibold leading-none tracking-tight", className)}
+	class={cn("font-heading text-base font-medium", className)}
 	{...restProps}
 >
 	{@render children?.()}
-</svelte:element>
+</div>
