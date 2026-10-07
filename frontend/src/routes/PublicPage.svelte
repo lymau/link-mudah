@@ -5,7 +5,7 @@
   import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '$lib/components/ui/card';
   import { Badge } from '$lib/components/ui/badge';
   import { Link2, ExternalLink, UserX, Loader2, Share2, Check, WifiOff } from 'lucide-svelte';
-  import { apiFetch } from '$lib/api';
+  import { apiFetch, resolveAvatarUrl } from '$lib/api';
   import { getAccessibleTheme } from '$lib/contrast';
 
   let { params = {} } = $props();
@@ -197,7 +197,7 @@
       <div class="flex flex-col items-center text-center mb-8">
         {#if profile.avatar_url && profile.avatar_url.trim() && !avatarFailed}
           <img
-            src={profile.avatar_url}
+            src={resolveAvatarUrl(profile.avatar_url)}
             alt={profile.title || profile.username}
             class="h-24 w-24 rounded-full object-cover shadow-md border-4 mb-4"
             style="border-color: {theme.borderColor};"

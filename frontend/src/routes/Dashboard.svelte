@@ -35,9 +35,14 @@
     Eye,
     Sparkles,
     Copy,
-    ArrowUpRight
+    ArrowUpRight,
+    Upload,
+    Camera,
+    X,
+    Image as ImageIcon,
+    AlertCircle
   } from 'lucide-svelte';
-  import { apiFetch, clearAuthToken, getAuthToken } from '$lib/api';
+  import { apiFetch, clearAuthToken, getAuthToken, resolveAvatarUrl } from '$lib/api';
   import { getAccessibleTheme } from '$lib/contrast';
 
   let user = $state({
@@ -78,6 +83,146 @@
   let settingsAvatarUrl = $state('');
   let settingsTitle = $state('');
   let settingsDescription = $state('');
+
+  // Avatar Upload State
+  let isUploadingAvatar = $state(false);
+  let isDeletingAvatar = $state(false);
+  let avatarUploadMode = $state('upload'); // 'upload' | 'url'
+  let isDragOver = $state(false);
+  let fileInputRef = $state(null);
+  let avatarPreviewBlobUrl = $state('');
+
+  // Resolved avatar URL for previews
+  let currentAvatarDisplay = $derived(
+    avatarPreviewBlobUrl || resolveAvatarUrl(settingsAvatarUrl) || resolveAvatarUrl(user.page_settings.avatar_url)
+  );
+
+  function validateAvatarFile(file) {
+    if (!file) return false;
+
+    // Strict validation against SVG to prevent Stored XSS
+    if (file.type === 'image/svg+xml' || (file.name && file.name.toLowerCase().endsWith('.svg'))) {
+      toast.error('Format SVG tidak diizinkan demi keamanan profil.');
+      return false;
+    }
+
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+    if (!allowedTypes.includes(file.type)) {
+      toast.error('Format gambar harus JPG, PNG, WEBP, atau GIF.');
+      return false;
+    }
+
+    const maxSizeBytes = 2 * 1024 * 1024; // 2MB
+    if (file.size > maxSizeBytes) {
+      toast.error('Ukuran file terlalu besar. Maksimal 2MB.');
+      return false;
+    }
+
+    return true;
+  }
+
+  async function uploadAvatarFile(file) {
+    if (!validateAvatarFile(file)) return;
+
+    isUploadingAvatar = true;
+    const toastId = toast.loading('Mengunggah avatar...');
+
+    if (avatarPreviewBlobUrl) {
+      URL.revokeObjectURL(avatarPreviewBlobUrl);
+    }
+    avatarPreviewBlobUrl = URL.createObjectURL(file);
+
+    try {
+      const formData = new FormData();
+      formData.append('avatar', file);
+
+      const res = await apiFetch('/api/me/avatar', {
+        method: 'POST',
+        body: formData
+      });
+
+      const newUrl = res.avatar_url;
+      settingsAvatarUrl = newUrl;
+      user.page_settings.avatar_url = newUrl;
+
+      toast.success('Avatar berhasil diunggah!', { id: toastId });
+    } catch (err) {
+      if (avatarPreviewBlobUrl) {
+        URL.revokeObjectURL(avatarPreviewBlobUrl);
+        avatarPreviewBlobUrl = '';
+      }
+      if (err.status === 401) {
+        clearAuthToken();
+        push('/login');
+        return;
+      }
+      toast.error(err.message || 'Gagal mengunggah avatar.', { id: toastId });
+    } finally {
+      isUploadingAvatar = false;
+      if (fileInputRef) {
+        fileInputRef.value = '';
+      }
+    }
+  }
+
+  function handleFileSelected(event) {
+    const files = event?.target?.files;
+    if (files && files.length > 0) {
+      uploadAvatarFile(files[0]);
+    }
+  }
+
+  function handleDragOver(e) {
+    e.preventDefault();
+    isDragOver = true;
+  }
+
+  function handleDragLeave(e) {
+    e.preventDefault();
+    isDragOver = false;
+  }
+
+  function handleDrop(e) {
+    e.preventDefault();
+    isDragOver = false;
+    if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      uploadAvatarFile(e.dataTransfer.files[0]);
+    }
+  }
+
+  async function handleDeleteAvatar() {
+    if (!settingsAvatarUrl && !user.page_settings.avatar_url) return;
+
+    isDeletingAvatar = true;
+    const toastId = toast.loading('Menghapus avatar...');
+
+    try {
+      await apiFetch('/api/me/avatar', {
+        method: 'DELETE'
+      });
+
+      if (avatarPreviewBlobUrl) {
+        URL.revokeObjectURL(avatarPreviewBlobUrl);
+        avatarPreviewBlobUrl = '';
+      }
+      settingsAvatarUrl = '';
+      user.page_settings.avatar_url = '';
+
+      toast.success('Avatar berhasil dihapus.', { id: toastId });
+    } catch (err) {
+      if (err.status === 401) {
+        clearAuthToken();
+        push('/login');
+        return;
+      }
+      toast.error(err.message || 'Gagal menghapus avatar.', { id: toastId });
+    } finally {
+      isDeletingAvatar = false;
+      if (fileInputRef) {
+        fileInputRef.value = '';
+      }
+    }
+  }
 
   // Reactive accessible theme calculation based on WCAG 2.1 contrast ratio
   let previewTheme = $derived(getAccessibleTheme(settingsBgColor));
@@ -363,9 +508,9 @@
 
         <!-- Profile Header in Phone -->
         <div class="text-center mb-5">
-          {#if settingsAvatarUrl && settingsAvatarUrl.trim()}
+          {#if currentAvatarDisplay}
             <img
-              src={settingsAvatarUrl.trim()}
+              src={currentAvatarDisplay}
               alt={settingsTitle || user.username}
               class="h-16 w-16 rounded-full mx-auto mb-2 object-cover shadow-sm border-2"
               style={`border-color: ${previewTheme.borderColor};`}
@@ -492,7 +637,7 @@
         <div class="flex items-center gap-2 pl-1">
           <Avatar class="h-8 w-8 ring-1 ring-border">
             {#if user.page_settings.avatar_url}
-              <AvatarImage src={user.page_settings.avatar_url} alt={user.username} />
+              <AvatarImage src={resolveAvatarUrl(user.page_settings.avatar_url)} alt={user.username} />
             {/if}
             <AvatarFallback class="bg-primary/10 text-primary font-bold text-xs">
               {(user.username || 'U').slice(0, 1).toUpperCase()}
@@ -782,28 +927,167 @@
                       </p>
                     </div>
 
-                    <!-- URL Foto Avatar -->
-                    <div class="space-y-1.5">
-                      <Label for="avatar-url" class="text-xs font-semibold">URL Avatar / Foto Profil</Label>
-                      <div class="flex items-center gap-3">
-                        <Avatar class="h-10 w-10 ring-1 ring-border shrink-0">
-                          {#if settingsAvatarUrl}
-                            <AvatarImage src={settingsAvatarUrl} alt="Avatar Preview" />
-                          {/if}
-                          <AvatarFallback class="bg-primary/10 text-primary font-bold text-xs">
-                            {(user.username || 'U').slice(0, 1).toUpperCase()}
-                          </AvatarFallback>
-                        </Avatar>
-                        <Input
-                          id="avatar-url"
-                          bind:value={settingsAvatarUrl}
-                          placeholder="https://example.com/foto-anda.jpg"
-                          class="h-10 flex-1"
-                        />
+                    <!-- FOTO AVATAR & FITUR UPLOAD -->
+                    <div class="space-y-3 rounded-2xl border border-border/80 bg-muted/20 p-4 sm:p-5">
+                      <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 sm:gap-2">
+                        <div>
+                          <Label class="text-xs font-bold text-foreground">Foto Profil / Avatar</Label>
+                          <p class="text-[11px] text-muted-foreground mt-0.5">
+                            Upload foto avatar atau gunakan tautan gambar eksternal (JPG, PNG, WEBP, GIF, maks. 2MB).
+                          </p>
+                        </div>
+                        <!-- Mode toggle: Upload File vs URL -->
+                        <div class="grid grid-cols-2 sm:inline-flex w-full sm:w-auto rounded-lg border border-border bg-background p-0.5 text-xs shrink-0">
+                          <button
+                            type="button"
+                            class={`px-3 py-1.5 sm:py-1 rounded-md font-medium text-[11px] text-center transition-colors cursor-pointer ${avatarUploadMode === 'upload' ? 'bg-primary text-primary-foreground shadow-xs' : 'text-muted-foreground hover:text-foreground'}`}
+                            onclick={() => avatarUploadMode = 'upload'}
+                          >
+                            Upload File
+                          </button>
+                          <button
+                            type="button"
+                            class={`px-3 py-1.5 sm:py-1 rounded-md font-medium text-[11px] text-center transition-colors cursor-pointer ${avatarUploadMode === 'url' ? 'bg-primary text-primary-foreground shadow-xs' : 'text-muted-foreground hover:text-foreground'}`}
+                            onclick={() => avatarUploadMode = 'url'}
+                          >
+                            URL Gambar
+                          </button>
+                        </div>
                       </div>
-                      <p class="text-[11px] text-muted-foreground">
-                        Gunakan tautan gambar langsung (JPG/PNG).
-                      </p>
+
+                      <!-- Avatar Preview and Controls -->
+                      <div class="flex flex-col sm:flex-row items-center sm:items-start gap-4 pt-1">
+                        <!-- Main Avatar Circle Preview with hover & loading overlay -->
+                        <div class="relative group shrink-0">
+                          <Avatar class="h-20 w-20 ring-2 ring-primary/20 shadow-md">
+                            {#if currentAvatarDisplay}
+                              <AvatarImage src={currentAvatarDisplay} alt={settingsTitle || user.username} />
+                            {/if}
+                            <AvatarFallback class="bg-primary/10 text-primary font-bold text-2xl select-none">
+                              {(user.username || 'U').slice(0, 1).toUpperCase()}
+                            </AvatarFallback>
+                          </Avatar>
+                          {#if isUploadingAvatar}
+                            <div class="absolute inset-0 rounded-full bg-background/80 backdrop-blur-xs flex items-center justify-center">
+                              <Loader2 class="h-6 w-6 animate-spin text-primary" />
+                            </div>
+                          {/if}
+                        </div>
+
+                        <!-- Upload / URL Input Content -->
+                        <div class="flex-1 w-full space-y-3">
+                          {#if avatarUploadMode === 'upload'}
+                            <!-- Hidden File Input for security and custom styled triggers -->
+                            <input
+                              type="file"
+                              id="avatar-file-input"
+                              accept="image/jpeg,image/png,image/webp,image/gif"
+                              class="sr-only"
+                              bind:this={fileInputRef}
+                              onchange={handleFileSelected}
+                              disabled={isUploadingAvatar}
+                            />
+
+                            <!-- Drag & Drop Zone -->
+                            <div
+                              class={`flex flex-col items-center justify-center rounded-xl border-2 border-dashed p-4 text-center transition-all cursor-pointer ${
+                                isDragOver
+                                  ? 'border-primary bg-primary/5 scale-[1.01]'
+                                  : 'border-border/80 hover:border-primary/50 hover:bg-muted/40'
+                              } ${isUploadingAvatar ? 'opacity-50 pointer-events-none' : ''}`}
+                              ondragover={handleDragOver}
+                              ondragleave={handleDragLeave}
+                              ondrop={handleDrop}
+                              onclick={() => fileInputRef?.click()}
+                              onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileInputRef?.click(); } }}
+                              tabindex="0"
+                              role="button"
+                              aria-label="Klik atau seret file gambar ke sini untuk mengunggah avatar"
+                            >
+                              <div class="flex items-center justify-center w-9 h-9 rounded-full bg-primary/10 text-primary mb-2">
+                                {#if isUploadingAvatar}
+                                  <Loader2 class="h-4 w-4 animate-spin" />
+                                {:else}
+                                  <Upload class="h-4 w-4" />
+                                {/if}
+                              </div>
+                              <p class="text-xs font-semibold text-foreground">
+                                {isUploadingAvatar ? 'Mengunggah avatar...' : 'Klik untuk pilih foto atau seret ke sini'}
+                              </p>
+                              <p class="text-[11px] text-muted-foreground mt-0.5">
+                                Format: JPG, PNG, WEBP, GIF (Maks. 2MB)
+                              </p>
+                            </div>
+
+                            <!-- Action Buttons: Select File & Delete Avatar -->
+                            <div class="flex flex-wrap items-center gap-2">
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                class="gap-1.5 text-xs h-8 cursor-pointer"
+                                onclick={() => fileInputRef?.click()}
+                                disabled={isUploadingAvatar}
+                              >
+                                {#if isUploadingAvatar}
+                                  <Loader2 class="h-3.5 w-3.5 animate-spin" />
+                                  <span>Mengunggah...</span>
+                                {:else}
+                                  <Camera class="h-3.5 w-3.5" />
+                                  <span>Pilih File Gambar</span>
+                                {/if}
+                              </Button>
+
+                              {#if settingsAvatarUrl || user.page_settings.avatar_url}
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="ghost"
+                                  class="gap-1.5 text-xs h-8 text-destructive/80 hover:text-destructive hover:bg-destructive/10 cursor-pointer"
+                                  onclick={handleDeleteAvatar}
+                                  disabled={isDeletingAvatar || isUploadingAvatar}
+                                >
+                                  {#if isDeletingAvatar}
+                                    <Loader2 class="h-3.5 w-3.5 animate-spin" />
+                                    <span>Menghapus...</span>
+                                  {:else}
+                                    <Trash2 class="h-3.5 w-3.5" />
+                                    <span>Hapus Avatar</span>
+                                  {/if}
+                                </Button>
+                              {/if}
+                            </div>
+                          {:else}
+                            <!-- URL Input Mode -->
+                            <div class="space-y-2">
+                              <div class="flex items-center gap-2">
+                                <Input
+                                  id="avatar-url"
+                                  bind:value={settingsAvatarUrl}
+                                  placeholder="https://example.com/foto-anda.jpg"
+                                  class="h-9 text-xs"
+                                />
+                                {#if settingsAvatarUrl}
+                                  <Button
+                                    type="button"
+                                    size="icon"
+                                    variant="ghost"
+                                    class="h-9 w-9 text-muted-foreground hover:text-destructive shrink-0"
+                                    onclick={() => { settingsAvatarUrl = ''; }}
+                                    title="Bersihkan input URL"
+                                    aria-label="Bersihkan input URL"
+                                  >
+                                    <X class="h-4 w-4" />
+                                  </Button>
+                                {/if}
+                              </div>
+                              <p class="text-[11px] text-muted-foreground">
+                                Masukkan URL langsung gambar avatar (misal dari Unsplash, GitHub, atau CDN foto).
+                              </p>
+                            </div>
+                          {/if}
+                        </div>
+                      </div>
                     </div>
 
                     <!-- Palet Warna Latar Belakang -->

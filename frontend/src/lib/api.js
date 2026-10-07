@@ -47,6 +47,24 @@ export function getApiBaseUrl() {
   return (envUrl || '').replace(/\/+$/, '');
 }
 
+export function resolveAvatarUrl(url) {
+  if (!url || typeof url !== 'string') return '';
+  const trimmed = url.trim();
+  if (
+    trimmed.startsWith('http://') ||
+    trimmed.startsWith('https://') ||
+    trimmed.startsWith('data:') ||
+    trimmed.startsWith('blob:')
+  ) {
+    return trimmed;
+  }
+  const baseUrl = getApiBaseUrl();
+  if (baseUrl && trimmed.startsWith('/')) {
+    return `${baseUrl}${trimmed}`;
+  }
+  return trimmed;
+}
+
 export async function apiFetch(endpoint, options = {}) {
   const headers = new Headers(options.headers || {});
 

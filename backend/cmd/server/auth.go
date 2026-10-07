@@ -60,8 +60,9 @@ type authClaims struct {
 }
 
 type profileHandler struct {
-	db  *sql.DB
-	rdb *redis.Client
+	db        *sql.DB
+	rdb       *redis.Client
+	uploadDir string
 }
 
 type pageSettings struct {
@@ -126,8 +127,12 @@ func newAuthHandler(db *sql.DB, secret string) *authHandler {
 	return &authHandler{db: db, jwtSecret: []byte(secret)}
 }
 
-func newProfileHandler(db *sql.DB, rdb *redis.Client) *profileHandler {
-	return &profileHandler{db: db, rdb: rdb}
+func newProfileHandler(db *sql.DB, rdb *redis.Client, uploadDir ...string) *profileHandler {
+	dir := "uploads"
+	if len(uploadDir) > 0 && uploadDir[0] != "" {
+		dir = uploadDir[0]
+	}
+	return &profileHandler{db: db, rdb: rdb, uploadDir: dir}
 }
 
 func (h *profileHandler) publicPage(w http.ResponseWriter, r *http.Request) {

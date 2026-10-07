@@ -20,6 +20,7 @@ type config struct {
 	DatabaseURL  string
 	RedisAddress string
 	JWTSecret    string
+	UploadDir    string
 }
 
 func main() {
@@ -44,7 +45,7 @@ func main() {
 	r.Use(corsMiddleware)
 
 	auth := newAuthHandler(db, cfg.JWTSecret)
-	profile := newProfileHandler(db, rdb)
+	profile := newProfileHandler(db, rdb, cfg.UploadDir)
 	r.Route("/api/auth", func(r chi.Router) {
 		r.Post("/register", auth.register)
 		r.Post("/login", auth.login)
@@ -53,11 +54,16 @@ func main() {
 		r.Use(RequireAuth(cfg.JWTSecret))
 		r.Get("/", profile.me)
 		r.Put("/settings", profile.updateSettings)
+		r.Post("/avatar", profile.uploadAvatar)
+		r.Delete("/avatar", profile.deleteAvatar)
 		r.Post("/links", profile.createLink)
 		r.Put("/links/{id}", profile.updateLink)
 		r.Delete("/links/{id}", profile.deleteLink)
 	})
 	r.Get("/api/public/{username}", profile.publicPage)
+
+	r.Get("/uploads/*", profile.serveUploads("/uploads"))
+	r.Get("/api/uploads/*", profile.serveUploads("/api/uploads"))
 
 	healthHandler := func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -103,6 +109,7 @@ func loadConfig() config {
 		DatabaseURL:  buildPostgresDSN(),
 		RedisAddress: getEnv("REDIS_ADDR", "redis:6379"),
 		JWTSecret:    os.Getenv("JWT_SECRET"),
+		UploadDir:    getEnv("UPLOAD_DIR", "uploads"),
 	}
 }
 
