@@ -1,1 +1,5 @@
 .env
+backend/uploads/*
+!backend/uploads/.gitkeep
+dist/
+node_modules/

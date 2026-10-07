@@ -5,7 +5,7 @@
   import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '$lib/components/ui/card';
   import { Badge } from '$lib/components/ui/badge';
   import { Link2, ExternalLink, UserX, Loader2, Share2, Check, WifiOff } from 'lucide-svelte';
-  import { apiFetch } from '$lib/api';
+  import { apiFetch, resolveAvatarUrl } from '$lib/api';
   import { getAccessibleTheme } from '$lib/contrast';
 
   let { params = {} } = $props();
@@ -16,6 +16,7 @@
   let errorMessage = $state('');
   let currentUsername = $state('');
   let copied = $state(false);
+  let avatarFailed = $state(false);
 
   let theme = $derived(getAccessibleTheme(profile?.bg_color || '#f8fafc'));
 
@@ -57,6 +58,7 @@
     isLoading = true;
     errorStatus = null;
     errorMessage = '';
+    avatarFailed = false;
 
     try {
       const data = await apiFetch(`/api/public/${encodeURIComponent(target)}`);
@@ -193,14 +195,21 @@
     <div class="w-full max-w-lg my-auto py-8">
       <!-- Profile Header -->
       <div class="flex flex-col items-center text-center mb-8">
-        {#if profile.avatar_url && profile.avatar_url.trim()}
+        {#if profile.avatar_url && profile.avatar_url.trim() && !avatarFailed}
           <img
-            src={profile.avatar_url}
+            src={resolveAvatarUrl(profile.avatar_url)}
             alt={profile.title || profile.username}
             class="h-24 w-24 rounded-full object-cover shadow-md border-4 mb-4"
             style="border-color: {theme.borderColor};"
-            onerror={(e) => { e.currentTarget.style.display = 'none'; }}
+            onerror={() => { avatarFailed = true; }}
           />
+        {:else}
+          <div
+            class="h-24 w-24 rounded-full flex items-center justify-center font-bold text-3xl shadow-md border-4 mb-4 select-none"
+            style="background-color: {theme.avatarFallbackBg}; color: {theme.avatarFallbackText}; border-color: {theme.borderColor};"
+          >
+            {(profile.username || 'U').slice(0, 1).toUpperCase()}
+          </div>
         {/if}
 
         <!-- Judul Halaman Publik -->
